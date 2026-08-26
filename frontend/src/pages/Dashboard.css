@@ -1,0 +1,172 @@
+.dashboard-page {
+  padding: 24px 32px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.page-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+}
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.filter-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.filter-row input[type="date"] {
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.metric-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.chart-section {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+  margin-bottom: 24px;
+}
+
+.chart-section h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin: 0 0 20px;
+}
+
+.chart-tooltip {
+  background: #1e293b;
+  color: #f1f5f9;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.tooltip-label {
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: #ffffff;
+}
+
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.data-table th {
+  background: #f1f5f9;
+  color: #374151;
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: right;
+  border-bottom: 2px solid #e5e7eb;
+  white-space: nowrap;
+}
+
+.data-table th:first-child { text-align: left; }
+
+.data-table td {
+  padding: 10px 14px;
+  text-align: right;
+  border-bottom: 1px solid #f3f4f6;
+  color: #374151;
+}
+
+.data-table td:first-child { text-align: left; font-weight: 500; }
+
+.data-table tr:hover td { background: #f9fafb; }
+
+.positive { color: #16a34a; font-weight: 600; }
+.negative { color: #dc2626; font-weight: 600; }
+
+.loading-msg {
+  text-align: center;
+  padding: 60px;
+  color: #6b7280;
+  font-size: 1rem;
+}
+
+.error-msg {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 14px 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.no-data {
+  color: #9ca3af;
+  text-align: center;
+  padding: 40px;
+}
+
+/* Currency toggle */
+.currency-toggle {
+  display: flex;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.currency-toggle button {
+  background: none;
+  border: none;
+  padding: 6px 16px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: #64748b;
+  transition: background 0.15s, color 0.15s;
+}
+
+.currency-toggle button.active {
+  background: #1e293b;
+  color: #fff;
+}
+
+.currency-toggle button:hover:not(.active) {
+  background: #f1f5f9;
+}
+
+.rate-cell {
+  color: #0369a1;
+  font-weight: 600;
+  text-align: right;
+}

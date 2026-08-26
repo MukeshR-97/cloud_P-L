@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cloud_pnl_backend
+    ports:
+      - "6000:6000"
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+    networks:
+      - app_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Replace <EC2-PUBLIC-IP> with your actual EC2 public IP or domain
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:6000/api}
+    container_name: cloud_pnl_frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - app_net
+
+networks:
+  app_net:
+    driver: bridge

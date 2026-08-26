@@ -1,0 +1,338 @@
+/* ── Page shell ──────────────────────────────────────────────────────────── */
+.form-page {
+  padding: 24px 32px;
+  max-width: 1300px;
+  margin: 0 auto;
+}
+
+.form-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 24px;
+  align-items: start;
+}
+
+/* ── Form card ───────────────────────────────────────────────────────────── */
+.form-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 28px 32px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  min-width: 0; /* prevent grid blowout */
+}
+
+.form-card h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0 0 22px;
+}
+
+/* ── Fieldsets ───────────────────────────────────────────────────────────── */
+fieldset {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px 18px 18px;
+  margin: 0 0 18px;
+}
+
+legend {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #6b7280;
+  padding: 0 8px;
+}
+
+/* ── Field grid ──────────────────────────────────────────────────────────── */
+/*
+  Use CSS Grid instead of flexbox so every field in the same row
+  gets an identical width — no more uneven stretching.
+*/
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 14px;
+  margin-top: 12px;
+}
+
+/* Two-column override for period & conversion fieldsets */
+.field-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+/* Three-column override (discounts) */
+.field-row-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.field-wide {
+  grid-column: span 2;
+}
+
+/* ── Labels ──────────────────────────────────────────────────────────────── */
+.field label,
+.field > label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #374151;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.3;
+}
+
+.field-hint {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: #9ca3af;
+}
+
+/* ── Inputs ──────────────────────────────────────────────────────────────── */
+.field input[type="number"],
+.field input[type="date"],
+.field textarea,
+.input-suffix-wrap input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 7px;
+  font-size: 0.875rem;
+  color: #111827;
+  background: #f9fafb;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.field input:focus,
+.field textarea:focus,
+.input-suffix-wrap input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  background: #fff;
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 62px;
+}
+
+/* ── Suffix wrapper (% / USD / ₹/USD) ───────────────────────────────────── */
+.input-suffix-wrap {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.input-suffix-wrap input {
+  /* leave room for the badge */
+  padding-right: 46px !important;
+}
+
+.input-suffix {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  background: #94a3b8;
+  border-radius: 0 7px 7px 0;
+  pointer-events: none;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* Colour-coded suffix badges */
+.input-suffix.pct   { background: #7c3aed; }
+.input-suffix.usd   { background: #2563eb; }
+.input-suffix.inr   { background: #059669; }
+.input-suffix.rate  { background: #0369a1; }
+
+/* ── Form actions ────────────────────────────────────────────────────────── */
+.form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.btn-primary {
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  padding: 9px 22px;
+  border-radius: 7px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  transition: background 0.15s;
+}
+.btn-primary:hover:not(:disabled) { background: #2563eb; }
+.btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.btn-secondary {
+  background: #f1f5f9;
+  color: #374151;
+  border: 1px solid #e2e8f0;
+  padding: 9px 22px;
+  border-radius: 7px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-secondary:hover { background: #e2e8f0; }
+
+/* ── State messages ──────────────────────────────────────────────────────── */
+.error-msg {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  padding: 11px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 0.85rem;
+}
+
+.loading-msg {
+  text-align: center;
+  padding: 60px;
+  color: #6b7280;
+}
+
+/* ── Preview sidebar ─────────────────────────────────────────────────────── */
+.preview-box {
+  background: #1e293b;
+  color: #f1f5f9;
+  border-radius: 12px;
+  padding: 20px 22px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  position: sticky;
+  top: 72px;
+}
+
+.preview-box h3 {
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0 0 14px;
+  color: #64748b;
+}
+
+.preview-section-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #475569;
+  margin: 0 0 4px;
+  padding-top: 4px;
+}
+
+.preview-fx {
+  font-weight: 400;
+  color: #94a3b8;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.68rem;
+}
+
+.preview-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.preview-table tr {
+  border-bottom: 1px solid #1e3a5f;
+}
+
+.preview-table tr:last-child {
+  border-bottom: none;
+}
+
+.preview-label {
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: #94a3b8;
+  padding: 7px 0;
+  white-space: nowrap;
+  width: 55%;
+}
+
+.preview-value {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: right;
+  padding: 7px 0;
+  white-space: nowrap;
+  color: #e2e8f0;
+}
+
+.preview-value.positive { color: #4ade80; }
+.preview-value.negative { color: #f87171; }
+
+.preview-value.deduct {
+  color: #f87171;
+  font-size: 0.8rem;
+}
+
+.preview-divider-row td {
+  padding: 2px 0;
+}
+
+.preview-hr {
+  border: none;
+  border-top: 1px solid #334155;
+  margin: 0;
+}
+
+.preview-note {
+  display: none; /* hidden — too tight in 340px sidebar */
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .form-layout {
+    grid-template-columns: 1fr;
+  }
+  .preview-box {
+    position: static;
+  }
+  .field-row-3 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .form-page { padding: 16px; }
+  .form-card  { padding: 18px; }
+  .field-row,
+  .field-row-2,
+  .field-row-3 {
+    grid-template-columns: 1fr;
+  }
+  .field-wide { grid-column: span 1; }
+}
