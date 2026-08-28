@@ -109,3 +109,51 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+/* ── Custom Scrollbar ──────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%);
+  border-radius: 10px;
+  border: 2px solid #f1f5f9;
+  transition: background 0.3s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #f1f5f9;
+}
+
+/* ── Smooth Transitions ──────────────────────────────────────────────────── */
+* {
+  transition-property: none;
+}
+
+*:not(.no-transition) {
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Selection Styling ──────────────────────────────────────────────────── */
+::selection {
+  background: rgba(59, 130, 246, 0.3);
+  color: #0f172a;
+}
+
+::-moz-selection {
+  background: rgba(59, 130, 246, 0.3);
+  color: #0f172a;
+}

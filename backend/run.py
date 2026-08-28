@@ -60,7 +60,7 @@ app = LoggingMiddleware(flask_app)
 
 if __name__ == "__main__":
     HOST = "0.0.0.0"
-    PORT = 6000
+    PORT = 8000
     log.info("Starting Cloud P&L backend on http://%s:%d", HOST, PORT)
     log.info("Press Ctrl+C to stop.\n")
     serve(app, host=HOST, port=PORT, threads=4)

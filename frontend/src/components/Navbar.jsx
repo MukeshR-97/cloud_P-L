@@ -1,6 +1,13 @@
-import React from "react";
 import { Link, useLocation } from "react-router-dom";
+import { LayoutDashboard, FileText, PlusCircle, Cloud } from "lucide-react";
 import "./Navbar.css";
+
+const NAV = [
+  { to: "/",            label: "Dashboard",    Icon: LayoutDashboard, exact: true  },
+  { to: "/records",     label: "Records",      Icon: FileText,        exact: false },
+  { to: "/records/new", label: "New Entry",    Icon: PlusCircle,      exact: true  },
+  { to: "/aws-accounts",label: "AWS Accounts", Icon: Cloud,           exact: false },
+];
 
 export default function Navbar() {
   const { pathname } = useLocation();
@@ -8,29 +15,22 @@ export default function Navbar() {
   return (
     <nav className="navbar">
       <div className="navbar-brand">
-        ☁️ <span>Cloud P&amp;L Dashboard</span>
+        <Cloud size={20} strokeWidth={2.5} className="brand-icon" />
+        <span>Cloud P&amp;L</span>
       </div>
       <ul className="navbar-links">
-        <li>
-          <Link to="/" className={pathname === "/" ? "active" : ""}>
-            Dashboard
-          </Link>
-        </li>
-        <li>
-          <Link to="/records" className={pathname.startsWith("/records") ? "active" : ""}>
-            Records
-          </Link>
-        </li>
-        <li>
-          <Link to="/records/new" className={pathname === "/records/new" ? "active" : ""}>
-            + New Entry
-          </Link>
-        </li>
-        <li>
-          <Link to="/aws-accounts" className={pathname.startsWith("/aws-accounts") ? "active" : ""}>
-            ☁ AWS Accounts
-          </Link>
-        </li>
+        {NAV.map(({ to, label, Icon, exact }) => {
+          const active = exact ? pathname === to : pathname.startsWith(to) && to !== "/";
+          const isExactHome = to === "/" && pathname === "/";
+          return (
+            <li key={to}>
+              <Link to={to} className={`nav-link ${active || isExactHome ? "active" : ""}`}>
+                <Icon size={15} strokeWidth={2} />
+                <span>{label}</span>
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     </nav>
   );

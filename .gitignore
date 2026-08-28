@@ -1,14 +1,17 @@
-# Python virtual environment
-venv/
-.venv/
+# Python
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/.env
 
-# Python cache
-__pycache__/
-*.py[cod]
+# Node
+frontend/node_modules/
+frontend/dist/
 
-# Environment variables
+# Docker
 .env
 
 # IDE
-.vscode/
-.idea/
+.kiro/
+*.log
