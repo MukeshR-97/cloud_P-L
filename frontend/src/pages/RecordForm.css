@@ -81,7 +81,7 @@ form {
   margin-bottom: 14px;
 }
 
-.rf-row-1 { grid-template-columns: 1fr 1fr 1fr; }
+.rf-row-1 { grid-template-columns: 1fr; max-width: 420px; }
 .rf-row-2 { grid-template-columns: 1fr 1fr; }
 .rf-row-3 { grid-template-columns: repeat(3, 1fr); }
 
@@ -363,9 +363,10 @@ form {
   color: #cbd5e1;
 }
 
-.rf-pv.pos { color: #4ade80; }
-.rf-pv.neg { color: #f87171; }
-.rf-pv.dim { color: #f87171; font-weight: 500; font-size: 0.72rem; }
+.rf-pv.pos     { color: #4ade80; }
+.rf-pv.neg     { color: #f87171; }
+.rf-pv.dim     { color: #f87171; font-weight: 500; font-size: 0.72rem; }
+.rf-pv.pos-dim { color: #4ade80; font-weight: 500; font-size: 0.72rem; }
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 1024px) {

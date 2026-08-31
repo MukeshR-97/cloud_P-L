@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS aws_accounts (
     contract_date         DATE          NOT NULL,
     is_active             TINYINT(1)    NOT NULL DEFAULT 1,
     is_manual             TINYINT(1)    NOT NULL DEFAULT 0,
+    -- CUR S3 export configuration (optional — used when Cost Explorer returns $0)
+    s3_cur_bucket         VARCHAR(120)  NULL COMMENT 'S3 bucket name for CUR export',
+    s3_cur_prefix         VARCHAR(200)  NULL COMMENT 'S3 prefix/path for CUR files, e.g. wealwin/',
+    s3_cur_region         VARCHAR(30)   NULL COMMENT 'AWS region of the S3 bucket, e.g. us-east-1',
+    -- Cloud Service Provider: AWS | GCP | Azure
+    csp                   VARCHAR(20)   NOT NULL DEFAULT 'AWS' COMMENT 'Cloud Service Provider',
     created_at            DATETIME      DEFAULT CURRENT_TIMESTAMP,
     updated_at            DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id)

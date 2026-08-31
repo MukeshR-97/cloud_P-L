@@ -5,19 +5,15 @@ import {
   updateAwsAccount,
   deleteAwsAccount,
   fetchAwsCosts,
-  listChildAccounts,
-  addChildAccount,
-  addPayer,
-  bulkSwitchPayer,
-  activatePayer,
-  deletePayer,
+  importCur,
+  diagnoseCur,
 } from "../api";
 import { useToast } from "../components/Toast";
 import {
-  Cloud, Download, Building2, RefreshCw, Pencil, Trash2,
-  Eye, EyeOff, X, ClipboardList, Lock, CheckCircle,
-  AlertTriangle, Plus, Loader2, ShieldCheck, KeyRound,
-  ChevronDown, ChevronUp, History, Star, Search,
+  Cloud, Download, Pencil, Trash2,
+  Eye, EyeOff, X, ClipboardList, Lock,
+  CheckCircle, AlertTriangle, Plus, Loader2,
+  ShieldCheck, Database, FileDown, Search, RefreshCw,
 } from "lucide-react";
 import "./AwsAccounts.css";
 
@@ -29,56 +25,62 @@ const AWS_REGIONS = [
   "eu-north-1","sa-east-1","ca-central-1","me-south-1",
 ];
 
+const CSP_OPTIONS = [
+  { value: "AWS",   label: "Amazon Web Services (AWS)" },
+  { value: "GCP",   label: "Google Cloud Platform (GCP)" },
+  { value: "Azure", label: "Microsoft Azure" },
+];
+
 const EMPTY_FORM = {
   name: "", aws_account_id: "", access_key_id: "",
   secret_access_key: "", region: "us-east-1",
-  contract_date: "", is_active: true,
+  contract_date: "", is_active: true, is_manual: false,
+  csp: "AWS",
+  s3_cur_bucket: "", s3_cur_prefix: "", s3_cur_region: "us-east-1",
 };
 
-// ── Account Form Modal ────────────────────────────────────────────────────────
+// ── Account Form Modal ─────────────────────────────────────────────────────────
 function AccountModal({ initial, onSave, onClose }) {
   const isEdit = Boolean(initial?.id);
-  const [tab, setTab] = useState(initial?.is_manual ? "manual" : "aws");
   const [form, setForm] = useState(
     initial ? {
-      name: initial.name ?? "",
-      aws_account_id: initial.aws_account_id ?? "",
-      access_key_id: "",
+      name:              initial.name           ?? "",
+      aws_account_id:    initial.aws_account_id ?? "",
+      access_key_id:     "",
       secret_access_key: "",
-      region: initial.region ?? "us-east-1",
-      contract_date: initial.contract_date ?? "",
-      is_active: initial.is_active ?? true,
-      is_manual: initial.is_manual ?? false,
-    } : { ...EMPTY_FORM, is_manual: false }
+      region:            initial.region         ?? "us-east-1",
+      contract_date:     initial.contract_date  ?? "",
+      is_active:         initial.is_active      ?? true,
+      is_manual:         initial.is_manual      ?? false,
+      csp:               initial.csp            ?? "AWS",
+      s3_cur_bucket:     initial.s3_cur_bucket  ?? "",
+      s3_cur_prefix:     initial.s3_cur_prefix  ?? "",
+      s3_cur_region:     initial.s3_cur_region  ?? initial.region ?? "us-east-1",
+    } : { ...EMPTY_FORM }
   );
   const [showSecret, setShowSecret] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
-  // When backend returns 409 (duplicate), offer to add new payer instead
-  const [duplicateAccount, setDuplicateAccount] = useState(null);
+  const [error, setError]   = useState(null);
 
   const handleChange = e => {
     const { name, value, type, checked } = e.target;
     setForm(prev => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
   };
 
-  const switchTab = t => {
-    setTab(t);
-    setForm(prev => ({ ...prev, is_manual: t === "manual" }));
-  };
-
   const handleSubmit = async e => {
     e.preventDefault();
-    setSaving(true);
-    setError(null);
-    setDuplicateAccount(null);
+    setSaving(true); setError(null);
     const payload = {
-      name: form.name,
-      aws_account_id: form.aws_account_id,
-      region: form.region,
+      name:          form.name,
+      aws_account_id: form.aws_account_id || null,
+      region:        form.region,
       contract_date: form.contract_date,
-      is_active: form.is_active,
-      is_manual: form.is_manual,
+      is_active:     form.is_active,
+      is_manual:     form.is_manual,
+      csp:           form.csp,
+      s3_cur_bucket: form.s3_cur_bucket || null,
+      s3_cur_prefix: form.s3_cur_prefix || null,
+      s3_cur_region: form.s3_cur_region || null,
     };
     if (!form.is_manual) {
       if (form.access_key_id)     payload.access_key_id     = form.access_key_id;
@@ -90,16 +92,8 @@ function AccountModal({ initial, onSave, onClose }) {
         : await createAwsAccount(payload);
       onSave();
     } catch (err) {
-      const status = err?.response?.status;
-      const data   = err?.response?.data;
-      if (status === 409 && data?.existing_account) {
-        // Duplicate aws_account_id — offer to add payer instead
-        setDuplicateAccount(data.existing_account);
-        setError(data.error);
-      } else {
-        const s = data?.error;
-        setError(s ? `[${status}] ${s}` : err?.message || "Save failed.");
-      }
+      const d = err?.response?.data;
+      setError(d?.error || err?.message || "Save failed.");
     } finally {
       setSaving(false);
       setForm(prev => ({ ...prev, secret_access_key: "" }));
@@ -114,48 +108,24 @@ function AccountModal({ initial, onSave, onClose }) {
           <button className="modal-close" onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
 
-        {!isEdit && (
-          <div className="account-type-tabs">
-            <button className={`type-tab ${tab === "aws" ? "active" : ""}`} type="button" onClick={() => switchTab("aws")}>
-              <Cloud size={14} /> AWS Account (with keys)
-            </button>
-            <button className={`type-tab ${tab === "manual" ? "active" : ""}`} type="button" onClick={() => switchTab("manual")}>
-              <Pencil size={14} /> Manual Account (no keys)
-            </button>
-          </div>
-        )}
-
-        {error && (
-          <div className="error-msg">
-            {error}
-            {duplicateAccount && (
-              <p style={{ marginTop: 8, fontSize: "0.82rem" }}>
-                <strong>Account:</strong> {duplicateAccount.name} (ID: {duplicateAccount.aws_account_id})<br />
-                To add a new management account for this member account, use
-                &ldquo;Add Payer&rdquo; on the existing account card.
-              </p>
-            )}
-          </div>
-        )}
+        {error && <div className="error-msg">{error}</div>}
 
         <form onSubmit={handleSubmit} noValidate autoComplete="off">
+          {/* Account Details */}
           <fieldset>
             <legend>Account Details</legend>
             <div className="field-row">
               <div className="field">
                 <label htmlFor="name">Account Name *</label>
                 <input id="name" name="name" type="text" value={form.name}
-                  onChange={handleChange} required
-                  placeholder={tab === "manual" ? "e.g. DoTE (Manual)" : "e.g. Production - ACME"} />
+                  onChange={handleChange} required placeholder="e.g. WeAlwin" />
               </div>
-              {tab === "aws" && (
-                <div className="field">
-                  <label htmlFor="aws_account_id">Member AWS Account ID</label>
-                  <input id="aws_account_id" name="aws_account_id" type="text"
-                    value={form.aws_account_id} onChange={handleChange}
-                    placeholder="123456789012" maxLength={12} />
-                </div>
-              )}
+              <div className="field">
+                <label htmlFor="aws_account_id">AWS Account ID</label>
+                <input id="aws_account_id" name="aws_account_id" type="text"
+                  value={form.aws_account_id} onChange={handleChange}
+                  placeholder="12-digit account ID" maxLength={12} />
+              </div>
             </div>
             <div className="field-row">
               <div className="field">
@@ -163,7 +133,17 @@ function AccountModal({ initial, onSave, onClose }) {
                 <input id="contract_date" name="contract_date" type="date"
                   value={form.contract_date} onChange={handleChange} required />
               </div>
-              {tab === "aws" && (
+              <div className="field">
+                <label htmlFor="csp">Cloud Provider</label>
+                <select id="csp" name="csp" value={form.csp} onChange={handleChange}>
+                  {CSP_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="field-row">
+              {!form.is_manual && (
                 <div className="field">
                   <label htmlFor="region">Region</label>
                   <select id="region" name="region" value={form.region} onChange={handleChange}>
@@ -173,6 +153,12 @@ function AccountModal({ initial, onSave, onClose }) {
               )}
               <div className="field field-checkbox">
                 <label>
+                  <input type="checkbox" name="is_manual" checked={form.is_manual} onChange={handleChange} />
+                  Manual Account (no AWS keys)
+                </label>
+              </div>
+              <div className="field field-checkbox">
+                <label>
                   <input type="checkbox" name="is_active" checked={form.is_active} onChange={handleChange} />
                   Active
                 </label>
@@ -180,10 +166,11 @@ function AccountModal({ initial, onSave, onClose }) {
             </div>
           </fieldset>
 
-          {tab === "aws" && (
+          {/* IAM Credentials — only for non-manual accounts */}
+          {!form.is_manual && (
             <fieldset>
               <legend>
-                Management Account IAM Credentials
+                IAM Credentials
                 {isEdit && <span className="legend-hint">Leave blank to keep existing keys</span>}
               </legend>
               <div className="credentials-notice">
@@ -194,7 +181,7 @@ function AccountModal({ initial, onSave, onClose }) {
                   <label htmlFor="access_key_id">Access Key ID {!isEdit && "*"}</label>
                   <input id="access_key_id" name="access_key_id" type="text"
                     value={form.access_key_id} onChange={handleChange}
-                    required={!isEdit && tab === "aws"}
+                    required={!isEdit}
                     placeholder={isEdit ? "Enter new key to rotate..." : "AKIAIOSFODNN7EXAMPLE"}
                     autoComplete="off" spellCheck={false} />
                 </div>
@@ -206,7 +193,7 @@ function AccountModal({ initial, onSave, onClose }) {
                     <input id="secret_access_key" name="secret_access_key"
                       type={showSecret ? "text" : "password"}
                       value={form.secret_access_key} onChange={handleChange}
-                      required={!isEdit && tab === "aws"}
+                      required={!isEdit}
                       placeholder={isEdit ? "Enter new secret to rotate..." : "wJalrX..."}
                       autoComplete="new-password" spellCheck={false} />
                     <button type="button" className="toggle-secret"
@@ -220,12 +207,55 @@ function AccountModal({ initial, onSave, onClose }) {
             </fieldset>
           )}
 
-          {tab === "manual" && (
+          {form.is_manual && (
             <div className="manual-notice">
-              <Pencil size={14} /> This account has no AWS keys. Enter monthly costs manually
-              using the <strong>+</strong> button in Records.
+              <Pencil size={14} /> No AWS keys needed. Enter monthly costs manually in Records.
             </div>
           )}
+
+          {/* CUR S3 configuration */}
+          <fieldset>
+            <legend>
+              <Database size={12} style={{ marginRight: 5, verticalAlign: "middle" }} />
+              CUR S3 Export
+              <span className="legend-hint" style={{ marginLeft: 8 }}>
+                optional — used when Cost Explorer returns $0 for historical months
+              </span>
+            </legend>
+            <div className="credentials-notice">
+              <Lock size={12} /> IAM policy needs <code>s3:GetObject</code> and <code>s3:ListBucket</code> on the bucket.
+              Leave blank if not using CUR.
+            </div>
+            <div className="field-row">
+              <div className="field">
+                <label htmlFor="s3_cur_bucket">S3 Bucket Name</label>
+                <input id="s3_cur_bucket" name="s3_cur_bucket" type="text"
+                  value={form.s3_cur_bucket} onChange={handleChange}
+                  placeholder="e.g. cloud-p-l" />
+              </div>
+              <div className="field">
+                <label htmlFor="s3_cur_prefix">
+                  S3 Prefix / Path
+                  <span className="legend-hint" style={{ marginLeft: 6 }}>folder inside bucket</span>
+                </label>
+                <input id="s3_cur_prefix" name="s3_cur_prefix" type="text"
+                  value={form.s3_cur_prefix} onChange={handleChange}
+                  placeholder="e.g. wealwin/" />
+              </div>
+              <div className="field">
+                <label htmlFor="s3_cur_region">S3 Region</label>
+                <select id="s3_cur_region" name="s3_cur_region"
+                  value={form.s3_cur_region} onChange={handleChange}>
+                  {AWS_REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+            </div>
+            {form.s3_cur_bucket && (
+              <div className="cur-path-preview">
+                s3://<strong>{form.s3_cur_bucket}</strong>/{form.s3_cur_prefix || ""}
+              </div>
+            )}
+          </fieldset>
 
           <div className="modal-actions">
             <button type="submit" className="btn-primary" disabled={saving}>
@@ -239,447 +269,34 @@ function AccountModal({ initial, onSave, onClose }) {
   );
 }
 
-// ── Add Payer Modal ───────────────────────────────────────────────────────────
-function AddPayerModal({ account, allAccounts, onSaved, onClose }) {
-  const activePayer = account.active_payer;
-
-  // Count how many accounts share the same active payer_account_id
-  const sharedAccounts = activePayer
-    ? allAccounts.filter(a =>
-        a.active_payer?.payer_account_id === activePayer.payer_account_id
-      )
-    : [account];
-
-  const [form, setForm] = useState({
-    payer_account_id: "",
-    management_account_name: "",
-    access_key_id: "",
-    secret_access_key: "",
-    region: account.region || "us-east-1",
-    valid_from: new Date().toISOString().slice(0, 10),
-    remarks: "",
-  });
-  const [applyToAll, setApplyToAll] = useState(sharedAccounts.length > 1);
-  const [showSecret, setShowSecret] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
-
-  const handleChange = e => setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
-
-  const handleSubmit = async e => {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      if (applyToAll && sharedAccounts.length > 1) {
-        await bulkSwitchPayer(account.id, form);
-      } else {
-        await addPayer(account.id, form);
-      }
-      onSaved(applyToAll ? sharedAccounts.length : 1);
-    } catch (err) {
-      setError(err?.response?.data?.error || "Failed to add payer.");
-    } finally {
-      setSaving(false);
-      setForm(prev => ({ ...prev, secret_access_key: "" }));
-    }
-  };
-
-  return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal-box">
-        <div className="modal-header">
-          <div>
-            <h2>
-              <Building2 size={16} style={{ marginRight: 8, verticalAlign: "middle" }} />
-              Add Management Account &mdash; {account.name}
-            </h2>
-            <p className="modal-subtitle">
-              Deactivates the current payer and sets the new one as active.
-              All existing cost records are preserved.
-              Member account ID ({account.aws_account_id || "n/a"}) stays unchanged.
-            </p>
-          </div>
-          <button className="modal-close" onClick={onClose} aria-label="Close"><X size={18} /></button>
-        </div>
-
-        {error && <div className="error-msg">{error}</div>}
-
-        {/* Bulk switch option — shown when siblings share the same payer */}
-        {sharedAccounts.length > 1 && activePayer && (
-          <div className="bulk-switch-notice">
-            <div className="bulk-switch-header">
-              <Building2 size={14} />
-              <strong>{sharedAccounts.length} accounts</strong> currently use management account
-              <code>{activePayer.payer_account_id}</code>
-            </div>
-            <ul className="bulk-switch-list">
-              {sharedAccounts.map(a => (
-                <li key={a.id}>{a.name} <span className="bulk-acct-id">({a.aws_account_id})</span></li>
-              ))}
-            </ul>
-            <label className="bulk-switch-checkbox">
-              <input
-                type="checkbox"
-                checked={applyToAll}
-                onChange={e => setApplyToAll(e.target.checked)}
-              />
-              Switch payer for <strong>all {sharedAccounts.length} accounts</strong> at once
-              <span className="field-hint-sm">(recommended — they all share the same management account)</span>
-            </label>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} autoComplete="off" noValidate>
-          <fieldset>
-            <legend>New Management Account</legend>
-            <div className="field-row">
-              <div className="field">
-                <label htmlFor="payer_account_id">Management Account ID *</label>
-                <input id="payer_account_id" name="payer_account_id" type="text"
-                  value={form.payer_account_id} onChange={handleChange}
-                  required placeholder="222222222222" maxLength={12} />
-              </div>
-              <div className="field">
-                <label htmlFor="management_account_name">Payer Label</label>
-                <input id="management_account_name" name="management_account_name" type="text"
-                  value={form.management_account_name} onChange={handleChange}
-                  placeholder="e.g. Acme Payer 2" />
-              </div>
-            </div>
-            <div className="field-row">
-              <div className="field">
-                <label htmlFor="payer_region">Region</label>
-                <select id="payer_region" name="region" value={form.region} onChange={handleChange}>
-                  {AWS_REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="valid_from">Effective From *</label>
-                <input id="valid_from" name="valid_from" type="date"
-                  value={form.valid_from} onChange={handleChange} required />
-              </div>
-            </div>
-          </fieldset>
-
-          <fieldset>
-            <legend>IAM Credentials for New Management Account</legend>
-            <div className="credentials-notice">
-              <Lock size={13} /> Credentials are encrypted and stored per payer.
-            </div>
-            <div className="field-row">
-              <div className="field">
-                <label htmlFor="payer_ak">Access Key ID *</label>
-                <input id="payer_ak" name="access_key_id" type="text"
-                  value={form.access_key_id} onChange={handleChange}
-                  required placeholder="AKIANEWPAYEREXAMPLE"
-                  autoComplete="off" spellCheck={false} />
-              </div>
-            </div>
-            <div className="field-row">
-              <div className="field field-wide">
-                <label htmlFor="payer_sk">Secret Access Key *</label>
-                <div className="secret-wrapper">
-                  <input id="payer_sk" name="secret_access_key"
-                    type={showSecret ? "text" : "password"}
-                    value={form.secret_access_key} onChange={handleChange}
-                    required placeholder="New management account secret..."
-                    autoComplete="new-password" spellCheck={false} />
-                  <button type="button" className="toggle-secret"
-                    onClick={() => setShowSecret(v => !v)} aria-label={showSecret ? "Hide" : "Show"}>
-                    {showSecret ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div className="field-row">
-              <div className="field field-wide">
-                <label htmlFor="payer_remarks">Remarks</label>
-                <input id="payer_remarks" name="remarks" type="text"
-                  value={form.remarks} onChange={handleChange}
-                  placeholder="e.g. Switched payer due to org change" />
-              </div>
-            </div>
-          </fieldset>
-
-          <div className="modal-actions">
-            <button type="submit" className="btn-primary" disabled={saving}>
-              {saving
-                ? <><Loader2 size={14} className="spin-icon" /> Switching...</>
-                : applyToAll && sharedAccounts.length > 1
-                  ? `Switch Payer for All ${sharedAccounts.length} Accounts`
-                  : "Add Management Account"
-              }
-            </button>
-            <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ── Payer History Panel (inline) ──────────────────────────────────────────────
-function PayerHistory({ account, onChanged }) {
-  const [open, setOpen] = useState(false);
-  const [activating, setActivating] = useState(null);
-  const [deleting, setDeleting] = useState(null);
-  const { toast } = useToast();
-
-  const payers = account.payers || [];
-  if (payers.length === 0) return null;
-
-  const handleActivate = async (payer) => {
-    setActivating(payer.id);
-    try {
-      await activatePayer(account.id, payer.id);
-      toast.success(`Payer "${payer.payer_account_id}" is now active.`);
-      onChanged();
-    } catch (err) {
-      toast.error(err?.response?.data?.error || "Failed to activate payer.");
-    } finally {
-      setActivating(null);
-    }
-  };
-
-  const handleDelete = async (payer) => {
-    setDeleting(payer.id);
-    try {
-      await deletePayer(account.id, payer.id);
-      toast.success("Payer record deleted.");
-      onChanged();
-    } catch (err) {
-      toast.error(err?.response?.data?.error || "Failed to delete payer.");
-    } finally {
-      setDeleting(null);
-    }
-  };
-
-  return (
-    <div className="payer-history">
-      <button className="payer-history-toggle" onClick={() => setOpen(v => !v)}>
-        <History size={13} />
-        Management Accounts ({payers.length})
-        {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-      </button>
-
-      {open && (
-        <div className="payer-history-list">
-          {payers.map(p => (
-            <div key={p.id} className={`payer-row ${p.is_active ? "payer-active" : "payer-inactive"}`}>
-              <div className="payer-row-info">
-                <div className="payer-row-top">
-                  {p.is_active && <Star size={11} className="payer-star" />}
-                  <code className="payer-id">{p.payer_account_id}</code>
-                  {p.management_account_name && (
-                    <span className="payer-name">{p.management_account_name}</span>
-                  )}
-                  <span className={`payer-status-badge ${p.is_active ? "active" : "inactive"}`}>
-                    {p.is_active ? "Active" : "Previous"}
-                  </span>
-                </div>
-                <div className="payer-row-meta">
-                  <span>From: {p.valid_from}</span>
-                  {p.valid_to && <span>To: {p.valid_to}</span>}
-                  {p.access_key_id_masked && p.access_key_id_masked !== "-" && (
-                    <span><KeyRound size={11} /> {p.access_key_id_masked}</span>
-                  )}
-                  {p.remarks && <span className="payer-remarks">{p.remarks}</span>}
-                </div>
-              </div>
-              <div className="payer-row-actions">
-                {!p.is_active && (
-                  <>
-                    <button
-                      className="btn-payer-activate"
-                      onClick={() => handleActivate(p)}
-                      disabled={activating === p.id}
-                      title="Switch back to this management account"
-                    >
-                      {activating === p.id
-                        ? <Loader2 size={12} className="spin-icon" />
-                        : <RefreshCw size={12} />}
-                      Reactivate
-                    </button>
-                    <button
-                      className="btn-payer-delete"
-                      onClick={() => handleDelete(p)}
-                      disabled={deleting === p.id}
-                      title="Delete this payer record"
-                    >
-                      {deleting === p.id
-                        ? <Loader2 size={12} className="spin-icon" />
-                        : <Trash2 size={12} />}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Child Accounts Discovery Panel ────────────────────────────────────────────
-function ChildAccountsPanel({ parentAccount, onAdded, onClose }) {
-  const [children, setChildren]           = useState([]);
-  const [loading, setLoading]             = useState(true);
-  const [error, setError]                 = useState(null);
-  const [contractDates, setContractDates] = useState({});
-  const [adding, setAdding]               = useState({});
-  const [addErrors, setAddErrors]         = useState({});
-  const [addedIds, setAddedIds]           = useState(new Set());
-
-  useEffect(() => {
-    (async () => {
-      setLoading(true); setError(null);
-      try {
-        const { data } = await listChildAccounts(parentAccount.id);
-        setChildren(data);
-        const dates = {};
-        data.forEach(c => { dates[c.account_id] = parentAccount.contract_date || ""; });
-        setContractDates(dates);
-      } catch (err) {
-        setError(err?.response?.data?.error || "Failed to list child accounts.");
-      } finally { setLoading(false); }
-    })();
-  }, [parentAccount]);
-
-  const handleAdd = async (child) => {
-    const contractDate = contractDates[child.account_id];
-    if (!contractDate) {
-      setAddErrors(prev => ({ ...prev, [child.account_id]: "Contract date required" }));
-      return;
-    }
-    setAdding(prev => ({ ...prev, [child.account_id]: true }));
-    setAddErrors(prev => ({ ...prev, [child.account_id]: null }));
-    try {
-      await addChildAccount(parentAccount.id, {
-        child_account_id: child.account_id,
-        child_name: child.name,
-        contract_date: contractDate,
-      });
-      setAddedIds(prev => new Set([...prev, child.account_id]));
-      setChildren(prev => prev.map(c =>
-        c.account_id === child.account_id ? { ...c, already_added: true } : c
-      ));
-      onAdded();
-    } catch (err) {
-      const msg = err?.response?.data?.error || "Failed to add account.";
-      setAddErrors(prev => ({ ...prev, [child.account_id]: msg }));
-    } finally {
-      setAdding(prev => ({ ...prev, [child.account_id]: false }));
-    }
-  };
-
-  return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal-box modal-box-wide">
-        <div className="modal-header">
-          <div>
-            <h2>
-              <Building2 size={16} style={{ marginRight: 8, verticalAlign: "middle" }} />
-              Child Accounts &mdash; {parentAccount.name}
-            </h2>
-            <p className="modal-subtitle">
-              Select child accounts to add. Each will inherit the current management account&apos;s credentials.
-            </p>
-          </div>
-          <button className="modal-close" onClick={onClose} aria-label="Close"><X size={18} /></button>
-        </div>
-
-        {loading && <div className="loading-msg"><Loader2 size={16} className="spin-icon" /> Fetching from AWS Organizations...</div>}
-        {error   && <div className="error-msg" style={{ whiteSpace: "pre-wrap" }}>{error}</div>}
-
-        {!loading && !error && children.length === 0 && (
-          <p style={{ color: "#6b7280", padding: "20px 0" }}>No active child accounts found in this organization.</p>
-        )}
-
-        {!loading && !error && children.length > 0 && (
-          <div className="children-list">
-            <table className="children-table">
-              <thead>
-                <tr>
-                  <th>Account Name</th>
-                  <th>Account ID</th>
-                  <th>Email</th>
-                  <th>Contract Date</th>
-                  <th>Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {children.map(child => {
-                  const isAdded  = child.already_added || addedIds.has(child.account_id);
-                  const isAdding = adding[child.account_id];
-                  const addErr   = addErrors[child.account_id];
-                  return (
-                    <tr key={child.account_id}>
-                      <td className="child-name">{child.name}</td>
-                      <td><code>{child.account_id}</code></td>
-                      <td className="child-email">{child.email}</td>
-                      <td>
-                        {!isAdded ? (
-                          <input type="date" className="child-date-input"
-                            value={contractDates[child.account_id] || ""}
-                            onChange={e => setContractDates(prev => ({ ...prev, [child.account_id]: e.target.value }))} />
-                        ) : (
-                          <span className="child-date-set">{contractDates[child.account_id] || "-"}</span>
-                        )}
-                        {addErr && <p className="child-add-err">{addErr}</p>}
-                      </td>
-                      <td>
-                        {isAdded
-                          ? <span className="badge created"><CheckCircle size={11} /> Added</span>
-                          : <span className="badge cloud">Active</span>}
-                      </td>
-                      <td>
-                        {isAdded ? <span className="text-muted">-</span> : (
-                          <button className="btn-add-child" onClick={() => handleAdd(child)} disabled={isAdding}>
-                            {isAdding ? <><Loader2 size={12} className="spin-icon" /> Adding...</> : <><Plus size={12} /> Add</>}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <div className="modal-actions" style={{ marginTop: 20 }}>
-          <button className="btn-secondary" onClick={onClose}>Close</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Fetch Result Panel ────────────────────────────────────────────────────────
-function FetchResult({ result, onClose }) {
+// ── Fetch Result Panel ─────────────────────────────────────────────────────────
+function FetchResult({ result, account, onClose, onOpenCurImport, onOpenEditModal }) {
   if (!result) return null;
   const isError = Boolean(result.error);
   const summary = result.summary || {};
   const months  = result.months  || [];
 
+  const zeroMonths = months.filter(m => m.status === "zero" || m.status === "unavailable");
+  const hasZero = zeroMonths.length > 0 || (summary.zero || 0) > 0 || (summary.unavailable || 0) > 0;
+  const zeroCount = zeroMonths.length || ((summary.zero || 0) + (summary.unavailable || 0));
+
   const statusClass = {
-    fetched: "badge-fetched", preserved: "badge-preserved",
-    unavailable: "badge-unavailable", zero: "badge-zero",
-    inserted: "badge-fetched", updated: "badge-fetched",
+    fetched:"badge-fetched", preserved:"badge-preserved",
+    unavailable:"badge-unavailable", zero:"badge-zero",
+    inserted:"badge-fetched", updated:"badge-fetched", split:"badge-preserved",
   };
 
   const StatusIcon = ({ status }) => {
     if (["fetched","inserted","updated"].includes(status)) return <CheckCircle size={11} />;
-    if (status === "unavailable") return <AlertTriangle size={11} />;
+    if (status === "unavailable" || status === "zero")     return <AlertTriangle size={11} />;
+    if (status === "preserved")                            return <ShieldCheck size={11} />;
     return null;
   };
 
   return (
     <div className={`fetch-result ${isError ? "fetch-error" : "fetch-success"}`}>
       <button className="fetch-close" onClick={onClose} aria-label="Close"><X size={14} /></button>
+
       {isError ? (
         <p style={{ whiteSpace: "pre-wrap" }}>
           <AlertTriangle size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
@@ -687,54 +304,98 @@ function FetchResult({ result, onClose }) {
         </p>
       ) : (
         <>
-          {result.payer && (
-            <p className="fetch-payer-info">
-              <Building2 size={12} style={{ marginRight: 4, verticalAlign: "middle" }} />
-              Fetched via management account: <code>{result.payer}</code>
-            </p>
-          )}
           <div className="fetch-summary-bar">
             {[
               { label: "Fetched",     val: summary.fetched,     cls: "sum-fetched" },
-              { label: "Preserved",   val: summary.preserved,   cls: "sum-preserved" },
-              { label: "Unavailable", val: summary.unavailable, cls: "sum-unavail" },
-              { label: "Inserted",    val: summary.inserted,    cls: "sum-fetched" },
               { label: "Updated",     val: summary.updated,     cls: "sum-fetched" },
+              { label: "Inserted",    val: summary.inserted,    cls: "sum-fetched" },
+              { label: "Preserved",   val: summary.preserved,   cls: "sum-preserved" },
+              { label: "Skipped",     val: summary.skipped,     cls: "sum-preserved" },
+              { label: "Unavailable", val: summary.unavailable, cls: "sum-unavail" },
+              { label: "Zero",        val: summary.zero,        cls: "sum-unavail" },
             ].filter(s => s.val > 0).map(s => (
               <span key={s.label} className={`sum-chip ${s.cls}`}>{s.label}: {s.val}</span>
             ))}
           </div>
-          <p className="fetch-msg">{result.message}</p>
+
           {months.length > 0 && (
-            <table className="fetch-table">
-              <thead>
-                <tr><th>Month</th><th>Status</th><th>Cloud Cost</th><th>Marketplace</th><th>Payer</th><th>Note</th></tr>
-              </thead>
-              <tbody>
-                {months.map(m => (
-                  <tr key={m.month} className={`fetch-row-${m.status}`}>
-                    <td><strong>{m.month}</strong></td>
-                    <td>
-                      <span className={`badge ${statusClass[m.status] || ""}`}>
-                        <StatusIcon status={m.status} /> {m.status}
-                      </span>
-                    </td>
-                    <td className="cost-cell">{m.cloud_service_cost != null ? `$${Number(m.cloud_service_cost).toFixed(2)}` : "-"}</td>
-                    <td className={`cost-cell ${m.marketplace_cost > 0 ? "mp-highlight" : ""}`}>
-                      {m.marketplace_cost != null ? `$${Number(m.marketplace_cost).toFixed(2)}` : "-"}
-                    </td>
-                    <td className="payer-cell">{m.cost_data_source || "-"}</td>
-                    <td className="reason-cell">{m.reason || (m.action ? `(${m.action})` : "")}</td>
+            <div className="fetch-table-wrap">
+              <table className="fetch-table">
+                <thead>
+                  <tr>
+                    <th className="ft-month">Month</th>
+                    <th className="ft-status">Status</th>
+                    <th className="ft-cost">Cloud Cost</th>
+                    <th className="ft-cost">Marketplace</th>
+                    <th className="ft-note">Note</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {months.map(m => (
+                    <tr key={m.month} className={`fetch-row-${m.status}`}>
+                      <td className="ft-month"><strong>{m.month?.slice(0,7)}</strong></td>
+                      <td className="ft-status">
+                        <span className={`badge ${statusClass[m.status] || ""}`}>
+                          <StatusIcon status={m.status} /> {m.action || m.status}
+                        </span>
+                      </td>
+                      <td className="ft-cost cost-cell">
+                        {m.cloud_service_cost != null ? `$${Number(m.cloud_service_cost).toFixed(2)}` : "—"}
+                      </td>
+                      <td className={`ft-cost cost-cell ${m.marketplace_cost > 0 ? "mp-highlight" : ""}`}>
+                        {m.marketplace_cost != null ? `$${Number(m.marketplace_cost).toFixed(2)}` : "—"}
+                      </td>
+                      <td className="ft-note">{m.reason || ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
-          {summary.unavailable > 0 && (
-            <div className="fetch-unavail-warn">
-              <AlertTriangle size={14} style={{ marginRight: 6, verticalAlign: "middle" }} />
-              <strong>{summary.unavailable}</strong> month(s) unavailable from the current management account.
-              Existing records were preserved.
+
+          {hasZero && (
+            <div className="cur-activation-hint">
+              <div className="cur-hint-header">
+                <Database size={15} className="cur-hint-icon" />
+                <strong>{zeroCount} month(s) returned $0 from Cost Explorer</strong>
+                <span className="cur-hint-reason">— distributor changed management account</span>
+              </div>
+              {account?.s3_cur_bucket ? (
+                <div className="cur-hint-body cur-hint-configured">
+                  <CheckCircle size={13} style={{ color: "#16a34a", flexShrink: 0 }} />
+                  <div>
+                    CUR S3 configured: <code>{account.s3_cur_bucket}/{account.s3_cur_prefix || ""}</code>
+                    <br />
+                    <button className="cur-hint-action-btn" onClick={onOpenCurImport}>
+                      <FileDown size={13} /> Import CUR now to fill these {zeroCount} month(s)
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="cur-hint-body">
+                  <div className="cur-hint-steps">
+                    <div className="cur-hint-step">
+                      <span className="cur-step-num">1</span>
+                      <div>
+                        <button className="cur-hint-action-btn cur-hint-action-sm" onClick={onOpenEditModal}>
+                          <Pencil size={12} /> Open Edit Account
+                        </button>
+                      </div>
+                    </div>
+                    <div className="cur-hint-step">
+                      <span className="cur-step-num">2</span>
+                      <span>Scroll to <strong>CUR S3 Export</strong> → enter your <strong>S3 Bucket</strong> and <strong>Prefix</strong> → Save</span>
+                    </div>
+                    <div className="cur-hint-step">
+                      <span className="cur-step-num">3</span>
+                      <span>Click the <strong>Import CUR</strong> button that appears in this account&apos;s row</span>
+                    </div>
+                  </div>
+                  <p style={{ fontSize: "0.75rem", color: "#92400e", marginTop: 8 }}>
+                    Or enter the missing months manually via <strong>Records → New Entry</strong>.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </>
@@ -743,97 +404,235 @@ function FetchResult({ result, onClose }) {
   );
 }
 
-
-// ── Payer History Table (inside expanded row) ─────────────────────────────────
-function PayerHistoryTable({ account, onChanged }) {
-  const [activating, setActivating] = useState(null);
-  const [deleting, setDeleting]     = useState(null);
+// ── CUR Import Modal ───────────────────────────────────────────────────────────
+function CurImportModal({ account, onClose }) {
+  const [activeTab, setActiveTab]   = useState("import");
+  const [form, setForm]             = useState({ from_month: "", to_month: "", overwrite_fetched: false });
+  const [importing, setImporting]   = useState(false);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [result, setResult]         = useState(null);
+  const [diagResult, setDiagResult] = useState(null);
+  const [error, setError]           = useState(null);
   const { toast } = useToast();
 
-  const handleActivate = async (payer) => {
-    setActivating(payer.id);
-    try {
-      await activatePayer(account.id, payer.id);
-      toast.success(`Payer "${payer.payer_account_id}" is now active.`);
-      onChanged();
-    } catch (err) {
-      toast.error(err?.response?.data?.error || "Failed to activate payer.");
-    } finally { setActivating(null); }
+  const handleChange = e => {
+    const { name, value, type, checked } = e.target;
+    setForm(p => ({ ...p, [name]: type === "checkbox" ? checked : value }));
   };
 
-  const handleDelete = async (payer) => {
-    setDeleting(payer.id);
+  const handleImport = async e => {
+    e.preventDefault();
+    setImporting(true); setError(null); setResult(null);
+    const payload = { overwrite_fetched: form.overwrite_fetched };
+    if (form.from_month) payload.from_month = form.from_month;
+    if (form.to_month)   payload.to_month   = form.to_month;
     try {
-      await deletePayer(account.id, payer.id);
-      toast.success("Payer record deleted.");
-      onChanged();
+      const { data } = await importCur(account.id, payload);
+      setResult(data);
+      toast.success(`CUR import complete — ${data.summary.inserted} inserted, ${data.summary.updated} updated.`);
     } catch (err) {
-      toast.error(err?.response?.data?.error || "Failed to delete payer.");
-    } finally { setDeleting(null); }
+      setError(err?.response?.data?.error || "CUR import failed.");
+    } finally { setImporting(false); }
   };
+
+  const handleDiagnose = async () => {
+    setDiagnosing(true); setDiagResult(null); setError(null);
+    try {
+      const { data } = await diagnoseCur(account.id);
+      setDiagResult(data);
+    } catch (err) {
+      setError(err?.response?.data?.error || "Diagnose failed.");
+    } finally { setDiagnosing(false); }
+  };
+
+  const s = result?.summary;
+  const d = diagResult;
 
   return (
-    <table className="payer-history-table">
-      <thead>
-        <tr>
-          <th>Management Account ID</th>
-          <th>Label</th>
-          <th>From</th>
-          <th>To</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {account.payers.map(p => (
-          <tr key={p.id} className={p.is_active ? "ph-active" : ""}>
-            <td><span className="ph-payer-id">{p.payer_account_id}</span></td>
-            <td style={{ color: "#6b7280", fontSize: "0.72rem", fontStyle: "italic" }}>
-              {p.management_account_name || "-"}
-            </td>
-            <td>{p.valid_from || "-"}</td>
-            <td>{p.valid_to || "-"}</td>
-            <td>
-              {p.is_active
-                ? <span className="ph-status-active"><Star size={10} /> Active</span>
-                : <span className="ph-status-inactive">Previous</span>}
-            </td>
-            <td>
-              <div className="ph-actions">
-                {!p.is_active && (
-                  <>
-                    <button className="btn-ph-activate"
-                      onClick={() => handleActivate(p)}
-                      disabled={activating === p.id}
-                      title="Reactivate this payer">
-                      {activating === p.id ? <Loader2 size={11} className="spin-icon" /> : <RefreshCw size={11} />}
-                      Activate
-                    </button>
-                    <button className="btn-ph-del"
-                      onClick={() => handleDelete(p)}
-                      disabled={deleting === p.id}
-                      title="Delete this payer record">
-                      {deleting === p.id ? <Loader2 size={11} className="spin-icon" /> : <Trash2 size={11} />}
-                    </button>
-                  </>
+    <div className="modal-overlay" role="dialog" aria-modal="true">
+      <div className="modal-box modal-box-wide">
+        <div className="modal-header">
+          <div>
+            <h2><FileDown size={16} style={{ marginRight: 8, verticalAlign: "middle" }} />
+              CUR S3 — {account.name}
+            </h2>
+            <p className="modal-subtitle">
+              <code>s3://{account.s3_cur_bucket}/{account.s3_cur_prefix || ""}</code>
+            </p>
+          </div>
+          <button className="modal-close" onClick={onClose} aria-label="Close"><X size={18} /></button>
+        </div>
+
+        <div className="account-type-tabs" style={{ marginBottom: 16 }}>
+          <button className={`type-tab ${activeTab === "import" ? "active" : ""}`}
+            type="button" onClick={() => setActiveTab("import")}>
+            <FileDown size={13} /> Import
+          </button>
+          <button className={`type-tab ${activeTab === "diagnose" ? "active" : ""}`}
+            type="button" onClick={() => { setActiveTab("diagnose"); if (!diagResult) handleDiagnose(); }}>
+            <Database size={13} /> Diagnose S3 Files
+          </button>
+        </div>
+
+        {error && <div className="error-msg">{error}</div>}
+
+        {activeTab === "import" && !result && (
+          <form onSubmit={handleImport} autoComplete="off">
+            <fieldset>
+              <legend>Date Range (optional — leave blank for all months)</legend>
+              <div className="field-row">
+                <div className="field">
+                  <label htmlFor="cur_from">From Month</label>
+                  <input id="cur_from" name="from_month" type="month"
+                    value={form.from_month} onChange={handleChange} placeholder="2024-01" />
+                </div>
+                <div className="field">
+                  <label htmlFor="cur_to">To Month</label>
+                  <input id="cur_to" name="to_month" type="month"
+                    value={form.to_month} onChange={handleChange} placeholder="2024-12" />
+                </div>
+              </div>
+              <div style={{ marginTop: 10 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.85rem", cursor: "pointer" }}>
+                  <input type="checkbox" name="overwrite_fetched"
+                    checked={form.overwrite_fetched} onChange={handleChange} />
+                  Overwrite months that already have Cost Explorer data
+                  <span style={{ fontSize: "0.72rem", color: "#94a3b8" }}>(skipped by default)</span>
+                </label>
+              </div>
+            </fieldset>
+            <div className="modal-actions">
+              <button type="submit" className="btn-primary" disabled={importing}>
+                {importing ? <><Loader2 size={14} className="spin-icon" /> Importing...</> : <><FileDown size={14} /> Import from CUR</>}
+              </button>
+              <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+            </div>
+          </form>
+        )}
+
+        {activeTab === "import" && result && (
+          <>
+            <div className="cur-result-box">
+              <p className="cur-result-msg">{result.message}</p>
+              <div className="cur-result-chips">
+                {[
+                  { label:"Inserted",  val:s.inserted,  cls:"sum-fetched" },
+                  { label:"Updated",   val:s.updated,   cls:"sum-fetched" },
+                  { label:"Skipped",   val:s.skipped,   cls:"sum-preserved" },
+                  { label:"Preserved", val:s.preserved, cls:"sum-preserved" },
+                  { label:"Zero",      val:s.zero,      cls:"sum-unavail" },
+                ].filter(c => c.val > 0).map(c => (
+                  <span key={c.label} className={`sum-chip ${c.cls}`}>{c.label}: {c.val}</span>
+                ))}
+              </div>
+              {result.months?.length > 0 && (
+                <table className="cur-months-table">
+                  <thead>
+                    <tr><th>Month</th><th>Status</th><th>Cloud Cost</th><th>Marketplace</th><th>Note</th></tr>
+                  </thead>
+                  <tbody>
+                    {result.months.map(m => (
+                      <tr key={m.month} className={`cur-row-${m.status}`}>
+                        <td><strong>{m.month?.slice(0,7)}</strong></td>
+                        <td><span className={`badge ${m.status==="cur"?"badge-fetched":m.status==="zero"?"badge-zero":"badge-preserved"}`}>
+                          {m.status==="cur"?<CheckCircle size={10}/>:m.status==="skipped"?<ShieldCheck size={10}/>:null}
+                          {" "}{m.action||m.status}
+                        </span></td>
+                        <td>{m.cloud_service_cost!=null?`$${Number(m.cloud_service_cost).toFixed(2)}`:"—"}</td>
+                        <td>{m.marketplace_cost!=null?`$${Number(m.marketplace_cost).toFixed(2)}`:"—"}</td>
+                        <td style={{ fontSize:"0.7rem", color:"#6b7280", whiteSpace:"normal" }}>{m.reason||""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="modal-actions"><button type="button" className="btn-secondary" onClick={onClose}>Close</button></div>
+          </>
+        )}
+
+        {activeTab === "diagnose" && (
+          <>
+            <div style={{ display:"flex", gap:8, marginBottom:12 }}>
+              <button className="btn-secondary" onClick={handleDiagnose} disabled={diagnosing}
+                style={{ display:"flex", alignItems:"center", gap:6, fontSize:"0.82rem" }}>
+                {diagnosing ? <><Loader2 size={13} className="spin-icon" /> Scanning...</> : <><RefreshCw size={13} /> Re-scan S3</>}
+              </button>
+            </div>
+            {diagnosing && <div className="loading-msg"><Loader2 size={16} className="spin-icon" /> Scanning S3 files...</div>}
+            {d && (
+              <div className="diag-box">
+                <div className="diag-section">
+                  <span className="diag-label">Files found:</span>
+                  <span className={`diag-value ${d.files_found?.length>0?"diag-ok":"diag-warn"}`}>{d.files_found?.length??0}</span>
+                  {d.files_found?.length>0 && (
+                    <div className="diag-file-list">
+                      {d.files_found.map(f=>(
+                        <div key={f.key} className="diag-file-row">
+                          <code>{f.key}</code>
+                          {f.billing_period&&<span className="diag-period">{f.billing_period}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="diag-section">
+                  <span className="diag-label">Critical columns:</span>
+                  <table className="diag-col-table"><tbody>
+                    {Object.entries(d.col_map||{}).map(([k,v])=>(
+                      <tr key={k}>
+                        <td className="diag-col-key">{k}</td>
+                        <td className={v?"diag-col-found":"diag-col-missing"}>
+                          {v?<><CheckCircle size={11}/> {v}</>:<><AlertTriangle size={11}/> NOT FOUND</>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody></table>
+                </div>
+                <div className="diag-section">
+                  <span className="diag-label">Account IDs in file:</span>
+                  <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginTop:4 }}>
+                    {(d.account_id_values||[]).map(id=>(
+                      <code key={id} style={{
+                        background: id===d.linked_account_id?"#dcfce7":"#f1f5f9",
+                        color: id===d.linked_account_id?"#166534":"#374151",
+                        padding:"2px 8px", borderRadius:5, fontSize:"0.78rem"
+                      }}>
+                        {id}{id===d.linked_account_id?" ✓":""}
+                      </code>
+                    ))}
+                  </div>
+                </div>
+                <div className="diag-section">
+                  <span className="diag-label">Non-zero cost rows (first 200):</span>
+                  <span className={`diag-value ${d.non_zero_cost_count>0?"diag-ok":"diag-warn"}`}>{d.non_zero_cost_count}</span>
+                </div>
+                {d.warnings?.length>0 && (
+                  <div className="diag-section">
+                    {d.warnings.map((w,i)=>(
+                      <div key={i} className="diag-warning"><AlertTriangle size={12}/> {w}</div>
+                    ))}
+                  </div>
                 )}
               </div>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+            )}
+            <div className="modal-actions" style={{ marginTop:12 }}>
+              <button type="button" className="btn-secondary" onClick={onClose}>Close</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
+// ── Main Page ──────────────────────────────────────────────────────────────────
 export default function AwsAccounts() {
   const [accounts, setAccounts]         = useState([]);
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState(null);
-  const [modal, setModal]               = useState(null);
-  const [addPayerFor, setAddPayerFor]   = useState(null);
-  const [childPanel, setChildPanel]     = useState(null);
+  const [modal, setModal]               = useState(null);       // null | "new" | account
+  const [curImportFor, setCurImportFor] = useState(null);
   const [fetchingId, setFetchingId]     = useState(null);
   const [fetchResults, setFetchResults] = useState({});
   const [confirmDel, setConfirmDel]     = useState(null);
@@ -848,30 +647,19 @@ export default function AwsAccounts() {
     try {
       const { data } = await getAwsAccounts();
       setAccounts(data);
-    } catch { setError("Failed to load AWS accounts."); }
+    } catch { setError("Failed to load accounts."); }
     finally   { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const handleSave  = () => { setModal(null); load(); };
-  const handleAdded = () => { load(); };
-
-  const handlePayerSaved = (count = 1) => {
-    setAddPayerFor(null);
-    load();
-    toast.success(
-      count > 1
-        ? `Payer switched for ${count} accounts. Click Fetch on each to pull updated data.`
-        : "New management account added. Click Fetch Costs to pull updated data."
-    );
-  };
+  const handleSave = () => { setModal(null); load(); };
 
   const doDelete = async () => {
     const acc = confirmDel;
     setConfirmDel(null);
     try { await deleteAwsAccount(acc.id); load(); toast.success(`"${acc.name}" deleted.`); }
-    catch { toast.error("Delete failed. Please try again."); }
+    catch { toast.error("Delete failed."); }
   };
 
   const handleFetch = async acc => {
@@ -882,7 +670,7 @@ export default function AwsAccounts() {
       const { data } = await fetchAwsCosts(acc.id);
       setFetchResults(prev => ({ ...prev, [acc.id]: data }));
     } catch (err) {
-      const msg = err?.response?.data?.error || "Fetch failed. Check credentials and permissions.";
+      const msg = err?.response?.data?.error || "Fetch failed. Check IAM credentials.";
       setFetchResults(prev => ({ ...prev, [acc.id]: { error: msg } }));
     } finally { setFetchingId(null); }
   };
@@ -891,12 +679,10 @@ export default function AwsAccounts() {
     const q = search.toLowerCase();
     const matchSearch = !q ||
       acc.name.toLowerCase().includes(q) ||
-      (acc.aws_account_id || "").includes(q) ||
-      (acc.active_payer?.payer_account_id || "").includes(q) ||
-      (acc.active_payer?.management_account_name || "").toLowerCase().includes(q);
+      (acc.aws_account_id || "").includes(q);
     const matchStatus =
       filterStatus === "all" ||
-      (filterStatus === "active"   && acc.is_active && !acc.is_manual) ||
+      (filterStatus === "active"   && acc.is_active  && !acc.is_manual) ||
       (filterStatus === "inactive" && !acc.is_active) ||
       (filterStatus === "manual"   && acc.is_manual);
     return matchSearch && matchStatus;
@@ -911,23 +697,17 @@ export default function AwsAccounts() {
         </button>
       </div>
 
-      {/* Toolbar: search + filters */}
+      {/* Search + filter toolbar */}
       <div className="aws-toolbar">
         <div className="aws-search-wrap">
           <Search size={13} />
-          <input
-            className="aws-search"
-            placeholder="Search name, account ID, payer..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+          <input className="aws-search" placeholder="Search name or account ID..."
+            value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         {["all","active","inactive","manual"].map(f => (
-          <button
-            key={f}
+          <button key={f}
             className={`aws-filter-btn ${filterStatus === f ? "active" : ""}`}
-            onClick={() => setFilterStatus(f)}
-          >
+            onClick={() => setFilterStatus(f)}>
             {f.charAt(0).toUpperCase() + f.slice(1)}
           </button>
         ))}
@@ -940,8 +720,7 @@ export default function AwsAccounts() {
       {!loading && accounts.length === 0 && (
         <div className="empty-state">
           <Cloud size={44} className="empty-icon-svg" />
-          <p>No AWS accounts configured yet.</p>
-          <p className="empty-sub">Add a management account to get started.</p>
+          <p>No accounts configured yet.</p>
           <button className="btn-primary" onClick={() => setModal("new")}><Plus size={13} /> Add your first account</button>
         </div>
       )}
@@ -953,7 +732,6 @@ export default function AwsAccounts() {
               <tr>
                 <th style={{ width: 28 }}></th>
                 <th>Account</th>
-                <th>Management Account</th>
                 <th>Access Key</th>
                 <th>Region</th>
                 <th>Contract</th>
@@ -963,54 +741,41 @@ export default function AwsAccounts() {
             </thead>
             <tbody>
               {filtered.map((acc, i) => {
-                const active     = acc.active_payer;
                 const isExpanded = expandedId === acc.id;
                 const fetchRes   = fetchResults[acc.id];
-
                 return (
                   <React.Fragment key={acc.id}>
-                    <tr
-                      className={acc.is_active ? "" : "row-inactive"}
-                      style={{ animationDelay: `${Math.min(i * 0.025, 0.4)}s` }}
-                    >
-                      <td style={{ width: 28, paddingRight: 4 }}>
-                        <button
-                          className="btn-expand"
+                    <tr className={acc.is_active ? "" : "row-inactive"}
+                      style={{ animationDelay: `${Math.min(i*0.025,0.4)}s` }}>
+
+                      <td style={{ width:28, paddingRight:4 }}>
+                        <button className="btn-expand"
                           onClick={() => setExpandedId(isExpanded ? null : acc.id)}
-                          title={isExpanded ? "Collapse" : "Expand payer history & fetch results"}
-                        >
-                          {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                          title={isExpanded ? "Collapse" : "Expand fetch results"}>
+                          {isExpanded ? "▾" : "▸"}
                         </button>
                       </td>
 
                       <td>
                         <div className="acct-name">{acc.name}</div>
                         {acc.aws_account_id && <div className="acct-member-id">{acc.aws_account_id}</div>}
-                      </td>
-
-                      <td>
-                        {active ? (
-                          <div className="payer-cell-wrap">
-                            <div className="payer-main">
-                              <span className="payer-id-chip">{active.payer_account_id}</span>
-                              {active.management_account_name && (
-                                <span className="payer-name-chip">{active.management_account_name}</span>
-                              )}
-                            </div>
-                            {(acc.payers?.length || 0) > 1 && (
-                              <span className="payer-history-count">+{acc.payers.length - 1} previous</span>
-                            )}
-                          </div>
-                        ) : <span className="text-muted" style={{ fontSize: "0.75rem" }}>-</span>}
+                        <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:3, flexWrap:"wrap" }}>
+                          <span className={`csp-badge csp-${(acc.csp||"AWS").toLowerCase()}`}>{acc.csp||"AWS"}</span>
+                          {acc.s3_cur_bucket && (
+                            <span className="cur-configured-badge" title={`CUR: s3://${acc.s3_cur_bucket}/${acc.s3_cur_prefix||""}`}>
+                              <Database size={9} /> CUR
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       <td><code className="masked-key">{acc.access_key_id_masked || "-"}</code></td>
                       <td><span className="region-chip">{acc.region || "-"}</span></td>
-                      <td style={{ fontSize: "0.78rem", color: "#64748b" }}>{acc.contract_date || "-"}</td>
+                      <td style={{ fontSize:"0.78rem", color:"#64748b" }}>{acc.contract_date || "-"}</td>
 
                       <td>
-                        <span className={`status-badge ${acc.is_manual ? "manual" : acc.is_active ? "active" : "inactive"}`}>
-                          {acc.is_manual ? "Manual" : acc.is_active ? "Active" : "Inactive"}
+                        <span className={`status-badge ${acc.is_manual?"manual":acc.is_active?"active":"inactive"}`}>
+                          {acc.is_manual?"Manual":acc.is_active?"Active":"Inactive"}
                         </span>
                       </td>
 
@@ -1019,21 +784,20 @@ export default function AwsAccounts() {
                           <button className="btn-act btn-act-fetch"
                             onClick={() => handleFetch(acc)}
                             disabled={fetchingId === acc.id || !acc.is_active || acc.is_manual}
-                            title="Fetch costs from AWS">
+                            title="Fetch costs from AWS Cost Explorer">
                             {fetchingId === acc.id
                               ? <Loader2 size={12} className="spin-icon" />
                               : <Download size={12} />}
                             Fetch
                           </button>
-                          <button className="btn-act btn-act-payer"
-                            onClick={() => setAddPayerFor(acc)}
-                            title="Add / switch management account">
-                            <Building2 size={12} /> Payer
-                          </button>
-                          <button className="btn-act btn-act-child"
-                            onClick={() => setChildPanel(acc)}
-                            title="Discover child accounts via AWS Organizations">
-                            <Building2 size={12} /> Children
+                          <button
+                            className={`btn-act ${acc.s3_cur_bucket ? "btn-act-cur-import" : "btn-act-cur-setup"}`}
+                            onClick={() => acc.s3_cur_bucket ? setCurImportFor(acc) : setModal(acc)}
+                            title={acc.s3_cur_bucket
+                              ? `Import from s3://${acc.s3_cur_bucket}/${acc.s3_cur_prefix||""}`
+                              : "Set up CUR S3 to import historical months"}>
+                            <FileDown size={12} />
+                            {acc.s3_cur_bucket ? "Import CUR" : "Setup CUR"}
                           </button>
                           <button className="btn-act btn-act-edit"
                             onClick={() => setModal(acc)} title="Edit account">
@@ -1049,23 +813,16 @@ export default function AwsAccounts() {
 
                     {isExpanded && (
                       <tr className="expanded-row">
-                        <td colSpan={8}>
+                        <td colSpan={7}>
                           <div className="expanded-content">
-                            {(acc.payers?.length || 0) > 0 && (
-                              <div>
-                                <div style={{ fontSize: "0.68rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "flex", alignItems: "center", gap: 5 }}>
-                                  <History size={11} /> Management Account History
-                                </div>
-                                <PayerHistoryTable account={acc} onChanged={load} />
-                              </div>
-                            )}
                             {fetchRes !== undefined && (
-                              <div className="expanded-fetch">
-                                <FetchResult
-                                  result={fetchRes}
-                                  onClose={() => setFetchResults(prev => { const n = { ...prev }; delete n[acc.id]; return n; })}
-                                />
-                              </div>
+                              <FetchResult
+                                result={fetchRes}
+                                account={acc}
+                                onClose={() => setFetchResults(prev => { const n={...prev}; delete n[acc.id]; return n; })}
+                                onOpenCurImport={() => setCurImportFor(acc)}
+                                onOpenEditModal={() => setModal(acc)}
+                              />
                             )}
                           </div>
                         </td>
@@ -1077,7 +834,7 @@ export default function AwsAccounts() {
 
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: "center", padding: "32px", color: "#94a3b8", fontSize: "0.82rem" }}>
+                  <td colSpan={7} style={{ textAlign:"center", padding:"32px", color:"#94a3b8", fontSize:"0.82rem" }}>
                     No accounts match your search or filter.
                   </td>
                 </tr>
@@ -1087,31 +844,40 @@ export default function AwsAccounts() {
         </div>
       )}
 
-      {/* IAM Policy */}
+      {/* IAM Policy Reference */}
       <div className="info-panel">
         <h3><ClipboardList size={13} /> Required IAM Permissions</h3>
-        <p>The management account&apos;s IAM user needs this policy:</p>
+        <p>The customer account&apos;s IAM user needs this policy for <strong>Fetch Costs</strong>:</p>
         <pre className="iam-policy">{JSON.stringify({
           Version: "2012-10-17",
           Statement: [
-            { Effect: "Allow", Action: ["ce:GetCostAndUsage","ce:GetDimensionValues"], Resource: "*" },
-            { Effect: "Allow", Action: ["organizations:ListAccounts"], Resource: "*", Sid: "AllowListChildAccounts" },
+            { Sid:"CostExplorer", Effect:"Allow", Action:["ce:GetCostAndUsage","ce:GetDimensionValues"], Resource:"*" }
+          ],
+        }, null, 2)}</pre>
+        <p style={{ marginTop:12 }}>For <strong>CUR S3 Import</strong>, add S3 read permissions:</p>
+        <pre className="iam-policy">{JSON.stringify({
+          Version: "2012-10-17",
+          Statement: [
+            { Sid:"CurS3Read", Effect:"Allow", Action:["s3:GetObject","s3:ListBucket"],
+              Resource:["arn:aws:s3:::YOUR-BUCKET","arn:aws:s3:::YOUR-BUCKET/*"] }
           ],
         }, null, 2)}</pre>
         <p className="info-note">
-          Use <strong>Add Payer</strong> to switch management accounts — all existing cost records are preserved.
+          If Cost Explorer returns $0 for some months (distributor changed management account),
+          use <strong>Setup CUR</strong> → <strong>Import CUR</strong> to recover those months from S3.
+          Or enter them manually in <strong>Records → New Entry</strong>.
         </p>
       </div>
 
-      {/* Delete confirm */}
+      {/* Delete Confirmation */}
       {confirmDel && (
         <div className="modal-overlay" role="dialog" aria-modal="true">
-          <div className="modal-box" style={{ maxWidth: 400 }}>
+          <div className="modal-box" style={{ maxWidth:400 }}>
             <div className="modal-header">
-              <h2><Trash2 size={14} style={{ marginRight: 6, verticalAlign: "middle", color: "#dc2626" }} />Delete Account</h2>
+              <h2><Trash2 size={14} style={{ marginRight:6, verticalAlign:"middle", color:"#dc2626" }} />Delete Account</h2>
               <button className="modal-close" onClick={() => setConfirmDel(null)}><X size={16} /></button>
             </div>
-            <p style={{ color: "#475569", fontSize: "0.85rem", margin: "0 0 16px" }}>
+            <p style={{ color:"#475569", fontSize:"0.85rem", margin:"0 0 16px" }}>
               Delete <strong>{confirmDel.name}</strong>? This cannot be undone.
             </p>
             <div className="modal-actions">
@@ -1123,8 +889,7 @@ export default function AwsAccounts() {
       )}
 
       {modal && <AccountModal initial={modal === "new" ? null : modal} onSave={handleSave} onClose={() => setModal(null)} />}
-      {addPayerFor && <AddPayerModal account={addPayerFor} allAccounts={accounts} onSaved={handlePayerSaved} onClose={() => setAddPayerFor(null)} />}
-      {childPanel && <ChildAccountsPanel parentAccount={childPanel} onAdded={handleAdded} onClose={() => setChildPanel(null)} />}
+      {curImportFor && <CurImportModal account={curImportFor} onClose={() => setCurImportFor(null)} />}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState, useCallback } from "react";
 import { ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, BarChart } from "recharts";
-import { TrendingUp, TrendingDown, DollarSign, Activity, BarChart2, RefreshCw, Calendar } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Activity, BarChart2, RefreshCw } from "lucide-react";
 import { getDashboardSummary } from "../api";
 import MetricCard from "../components/MetricCard";
 import { formatCurrency, formatINR } from "../utils/format";
@@ -124,8 +124,8 @@ export default function Dashboard() {
                   <YAxis tickFormatter={fmtK} tick={{ fontSize:11 }}/>
                   <Tooltip content={customTooltip}/>
                   <Legend/>
-                  <Bar dataKey="cloud_service_cost" name="Cloud Cost" fill={COLORS.cloud_service_cost} stackId="c" radius={[0,0,0,0]}/>
-                  <Bar dataKey="marketplace_cost" name="Marketplace" fill={COLORS.marketplace_cost} stackId="c" radius={[3,3,0,0]}/>
+                  <Bar dataKey={`cloud_service_cost${suffix}`} name="Cloud Cost" fill={COLORS.cloud_service_cost} stackId="c" radius={[0,0,0,0]}/>
+                  <Bar dataKey={`marketplace_cost${suffix}`} name="Marketplace" fill={COLORS.marketplace_cost} stackId="c" radius={[3,3,0,0]}/>
                   <Line type="monotone" dataKey={`ilios_spend${suffix}`} name="ILIOS Spend" stroke={COLORS.ilios_spend} strokeWidth={2} dot={false}/>
                   <Line type="monotone" dataKey={`invoice_to_customer${suffix}`} name="Invoice" stroke={COLORS.invoice_to_customer} strokeWidth={2} dot={false}/>
                 </ComposedChart>

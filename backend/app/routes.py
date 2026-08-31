@@ -152,8 +152,12 @@ def update_record(record_id):
 @cost_bp.route("/records/<int:record_id>", methods=["DELETE"])
 def delete_record(record_id):
     record = CostRecord.query.get_or_404(record_id)
-    db.session.delete(record)
-    db.session.commit()
+    try:
+        db.session.delete(record)
+        db.session.commit()
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        return jsonify({"error": f"Database error: {exc}"}), 500
     return jsonify({"message": "Deleted successfully"}), 200
 
 
@@ -352,6 +356,7 @@ def dashboard_summary():
         empty = {k: 0 for k in [
             "total_consumption", "cloud_service_cost", "marketplace_cost",
             "ilios_spend", "invoice_to_customer", "ilios_margin", "cash_claim",
+            "cloud_service_cost_inr", "marketplace_cost_inr",
             "total_consumption_inr", "ilios_spend_inr",
             "invoice_to_customer_inr", "ilios_margin_inr",
         ]}
@@ -360,6 +365,7 @@ def dashboard_summary():
     totals = {k: 0.0 for k in [
         "total_consumption", "cloud_service_cost", "marketplace_cost",
         "ilios_spend", "invoice_to_customer", "ilios_margin", "cash_claim",
+        "cloud_service_cost_inr", "marketplace_cost_inr",
         "total_consumption_inr", "ilios_spend_inr",
         "invoice_to_customer_inr", "ilios_margin_inr",
     ]}
@@ -372,12 +378,14 @@ def dashboard_summary():
         "month": None, "month_raw": None,
         "total_consumption": 0, "cloud_service_cost": 0, "marketplace_cost": 0,
         "ilios_spend": 0, "invoice_to_customer": 0, "ilios_margin": 0,
+        "cloud_service_cost_inr": 0, "marketplace_cost_inr": 0,
         "total_consumption_inr": 0, "ilios_spend_inr": 0,
         "invoice_to_customer_inr": 0, "ilios_margin_inr": 0,
         "conversion_rate": 1,
     })
 
     for r in records:
+        fx = float(r.conversion_rate)
         totals["total_consumption"]       += r.total_consumption
         totals["cloud_service_cost"]      += float(r.cloud_service_cost)
         totals["marketplace_cost"]        += float(r.marketplace_cost)
@@ -385,43 +393,48 @@ def dashboard_summary():
         totals["invoice_to_customer"]     += r.invoice_to_customer
         totals["ilios_margin"]            += r.ilios_margin
         totals["cash_claim"]              += float(r.cash_claim)
+        totals["cloud_service_cost_inr"]  += float(r.cloud_service_cost) * fx
+        totals["marketplace_cost_inr"]    += float(r.marketplace_cost) * fx
         totals["total_consumption_inr"]   += r.total_consumption_inr
         totals["ilios_spend_inr"]         += r.ilios_spend_inr
         totals["invoice_to_customer_inr"] += r.invoice_to_customer_inr
         totals["ilios_margin_inr"]        += r.ilios_margin_inr
 
-        # Bucket key: collapse all split rows of the same account+month
         bkey = (r.aws_account_id, r.consumption_month.isoformat())
         b = month_buckets[bkey]
-        b["month"]                   = r.consumption_month.strftime("%b %Y")
-        b["month_raw"]               = r.consumption_month.isoformat()
+        b["month"]                    = r.consumption_month.strftime("%b %Y")
+        b["month_raw"]                = r.consumption_month.isoformat()
         b["total_consumption"]       += r.total_consumption
         b["cloud_service_cost"]      += float(r.cloud_service_cost)
         b["marketplace_cost"]        += float(r.marketplace_cost)
         b["ilios_spend"]             += r.ilios_spend
         b["invoice_to_customer"]     += r.invoice_to_customer
         b["ilios_margin"]            += r.ilios_margin
+        b["cloud_service_cost_inr"]  += float(r.cloud_service_cost) * fx
+        b["marketplace_cost_inr"]    += float(r.marketplace_cost) * fx
         b["total_consumption_inr"]   += r.total_consumption_inr
         b["ilios_spend_inr"]         += r.ilios_spend_inr
         b["invoice_to_customer_inr"] += r.invoice_to_customer_inr
         b["ilios_margin_inr"]        += r.ilios_margin_inr
-        b["conversion_rate"]          = float(r.conversion_rate)
+        b["conversion_rate"]          = fx
 
     monthly_trend = [
         {
-            "month":                   b["month"],
-            "consumption_month_raw":   b["month_raw"],
-            "total_consumption":       round(b["total_consumption"],       2),
-            "cloud_service_cost":      round(b["cloud_service_cost"],      2),
-            "marketplace_cost":        round(b["marketplace_cost"],        2),
-            "ilios_spend":             round(b["ilios_spend"],             2),
-            "invoice_to_customer":     round(b["invoice_to_customer"],     2),
-            "ilios_margin":            round(b["ilios_margin"],            2),
-            "total_consumption_inr":   round(b["total_consumption_inr"],   2),
-            "ilios_spend_inr":         round(b["ilios_spend_inr"],         2),
-            "invoice_to_customer_inr": round(b["invoice_to_customer_inr"], 2),
-            "ilios_margin_inr":        round(b["ilios_margin_inr"],        2),
-            "conversion_rate":         b["conversion_rate"],
+            "month":                     b["month"],
+            "consumption_month_raw":     b["month_raw"],
+            "total_consumption":         round(b["total_consumption"],         2),
+            "cloud_service_cost":        round(b["cloud_service_cost"],        2),
+            "marketplace_cost":          round(b["marketplace_cost"],          2),
+            "ilios_spend":               round(b["ilios_spend"],               2),
+            "invoice_to_customer":       round(b["invoice_to_customer"],       2),
+            "ilios_margin":              round(b["ilios_margin"],              2),
+            "cloud_service_cost_inr":    round(b["cloud_service_cost_inr"],    2),
+            "marketplace_cost_inr":      round(b["marketplace_cost_inr"],      2),
+            "total_consumption_inr":     round(b["total_consumption_inr"],     2),
+            "ilios_spend_inr":           round(b["ilios_spend_inr"],           2),
+            "invoice_to_customer_inr":   round(b["invoice_to_customer_inr"],   2),
+            "ilios_margin_inr":          round(b["ilios_margin_inr"],          2),
+            "conversion_rate":           b["conversion_rate"],
         }
         for b in sorted(month_buckets.values(), key=lambda x: x["month_raw"])
     ]

@@ -44,6 +44,34 @@ with app.app_context():
             "ALTER TABLE aws_accounts ADD COLUMN is_manual TINYINT(1) NOT NULL DEFAULT 0"
         ))
 
+    if not col_exists("aws_accounts", "s3_cur_bucket"):
+        aws_patches.append((
+            "ADD s3_cur_bucket to aws_accounts",
+            "ALTER TABLE aws_accounts ADD COLUMN s3_cur_bucket VARCHAR(120) NULL "
+            "COMMENT 'S3 bucket name for CUR export'"
+        ))
+
+    if not col_exists("aws_accounts", "s3_cur_prefix"):
+        aws_patches.append((
+            "ADD s3_cur_prefix to aws_accounts",
+            "ALTER TABLE aws_accounts ADD COLUMN s3_cur_prefix VARCHAR(200) NULL "
+            "COMMENT 'S3 prefix/path for CUR files, e.g. wealwin/'"
+        ))
+
+    if not col_exists("aws_accounts", "s3_cur_region"):
+        aws_patches.append((
+            "ADD s3_cur_region to aws_accounts",
+            "ALTER TABLE aws_accounts ADD COLUMN s3_cur_region VARCHAR(30) NULL "
+            "COMMENT 'AWS region of the S3 bucket'"
+        ))
+
+    if not col_exists("aws_accounts", "csp"):
+        aws_patches.append((
+            "ADD csp to aws_accounts",
+            "ALTER TABLE aws_accounts ADD COLUMN csp VARCHAR(20) NOT NULL DEFAULT 'AWS' "
+            "COMMENT 'Cloud Service Provider: AWS | GCP | Azure'"
+        ))
+
     # Make access_key_id_enc nullable (was NOT NULL in older schema)
     # We do this via MODIFY — safe to run even if already nullable
     if col_exists("aws_accounts", "access_key_id_enc"):

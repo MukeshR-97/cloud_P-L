@@ -1,9 +1,9 @@
-﻿import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Cloud, FileText, Settings, Pencil, Trash2,
   CheckCircle, ShieldCheck, AlertTriangle, PlusCircle,
-  GitBranch, Merge, Plus
+  GitBranch, Merge
 } from "lucide-react";
 import { getRecords, getAwsAccounts, createAwsAccount, deleteRecord, bulkUpdateDiscounts, addSplitRow, mergeSplitGroup } from "../api";
 import { formatCurrency, formatINR, formatPct } from "../utils/format";
@@ -22,6 +22,7 @@ function buildBuckets(accounts, records) {
       map.set(k, {
         key: k, childAccountId: a.aws_account_id || null,
         accountName: _stripPayerSuffix(a.name),
+        csp: a.csp || "AWS",
         isManual: a.is_manual || false, isNoKey: a.is_manual || false,
         contractDate: a.contract_date, records: [], dbAccountIds: new Set([a.id]),
       });
@@ -43,6 +44,7 @@ function buildBuckets(accounts, records) {
       map.set(k, {
         key: k, childAccountId: r.aws_child_account_id || null,
         accountName: r.aws_account_name || `Account #${r.aws_account_id}`,
+        csp: "AWS",
         isManual: false, isNoKey: false,
         contractDate: r.contract_date, records: [r], dbAccountIds: new Set([r.aws_account_id]),
       });
@@ -57,13 +59,13 @@ function buildBuckets(accounts, records) {
   });
   if (orphans.length > 0) {
     orphans.sort((a, b) => new Date(a.consumption_month) - new Date(b.consumption_month));
-    if (orphans.some(r => r.cloud_service_cost > 0 || r.marketplace_cost > 0)) {
-      buckets.push({
-        key: "manual", childAccountId: null, accountName: "Manual Entries",
-        isManual: true, isNoKey: true, contractDate: null, records: orphans,
-        dbAccountIds: new Set(),
-      });
-    }
+    // Show all orphan records including $0 placeholders (unavailable/zero status)
+    buckets.push({
+      key: "manual", childAccountId: null, accountName: "Manual Entries",
+      csp: "AWS",
+      isManual: true, isNoKey: true, contractDate: null, records: orphans,
+      dbAccountIds: new Set(),
+    });
   }
   return buckets;
 }
@@ -266,9 +268,12 @@ function SplitBadge() {
 }
 
 // ── Single month row (used for normal rows and individual split segments) ─────
-function MonthRow({ r, showInr, onEdit, onDelete, isSplitSegment = false }) {
+function MonthRow({ r, showInr, onEdit, onDelete, isSplitSegment = false, csp = "AWS" }) {
+  const isZeroRow = (r.cost_status === "unavailable" || r.cost_status === "zero")
+    && r.cloud_service_cost === 0 && r.marketplace_cost === 0;
   return (
-    <tr key={r.id} className={isSplitSegment ? "split-segment-row" : ""}>
+    <tr key={r.id}
+      className={`${isSplitSegment ? "split-segment-row" : ""} ${isZeroRow ? "zero-cost-row" : ""}`}>
       <td className="month-cell">
         {isSplitSegment ? (
           <span className="split-seg-indent">
@@ -302,17 +307,21 @@ function MonthRow({ r, showInr, onEdit, onDelete, isSplitSegment = false }) {
         <td className={r.ilios_margin_inr >= 0 ? "positive" : "negative"}>{formatINR(r.ilios_margin_inr)}</td>
       </>}
       <td>
-        <span className={`source-badge ${r.is_auto_fetched ? "auto" : "manual"}`}>
-          {r.is_auto_fetched ? "AWS" : "Manual"}
-        </span>
-        {r.cost_status && r.cost_status !== "manual" && (
-          <span className={`status-badge status-${r.cost_status}`}
-            title={r.cost_data_source ? `Payer: ${r.cost_data_source}` : ""}>
-            {r.cost_status === "fetched"     ? <CheckCircle size={11}/>   :
-             r.cost_status === "preserved"   ? <ShieldCheck size={11}/>   :
-             r.cost_status === "unavailable" ? <AlertTriangle size={11}/> : null}
+        <div className="source-cell">
+          <span className={`csp-badge csp-${(csp || "AWS").toLowerCase()}`}>{csp || "AWS"}</span>
+          <span className={`fetch-src-badge ${r.is_auto_fetched ? "auto" : "manual"}`}>
+            {r.is_auto_fetched ? "Auto" : "Manual"}
           </span>
-        )}
+          {r.cost_status && r.cost_status !== "manual" && (
+            <span className={`data-table-status-badge status-${r.cost_status}`}
+              title={r.cost_data_source ? `Payer: ${r.cost_data_source}` : r.cost_status}>
+              {r.cost_status === "fetched"     ? <CheckCircle size={11}/>   :
+               r.cost_status === "preserved"   ? <ShieldCheck size={11}/>   :
+               r.cost_status === "unavailable" ? <AlertTriangle size={11}/> :
+               r.cost_status === "cur"         ? <CheckCircle size={11}/>   : null}
+            </span>
+          )}
+        </div>
       </td>
       <td className="remarks-cell">{r.remarks || "—"}</td>
       <td className="action-cell">
@@ -324,7 +333,7 @@ function MonthRow({ r, showInr, onEdit, onDelete, isSplitSegment = false }) {
 }
 
 // ── Split month group row ─────────────────────────────────────────────────────
-function SplitMonthGroup({ group, showInr, onEdit, onDelete, onRefresh }) {
+function SplitMonthGroup({ group, showInr, csp = "AWS", onEdit, onDelete, onRefresh }) {
   const [expanded, setExpanded] = useState(true);
   const [merging, setMerging]   = useState(false);
   const { toast } = useToast();
@@ -376,8 +385,11 @@ function SplitMonthGroup({ group, showInr, onEdit, onDelete, onRefresh }) {
           <td className={c.ilios_margin_inr >= 0 ? "positive" : "negative"}>{formatINR(c.ilios_margin_inr)}</td>
         </>}
         <td>
-          <span className="source-badge auto">AWS</span>
-          <SplitBadge />
+          <div className="source-cell">
+            <span className={`csp-badge csp-${(csp || "AWS").toLowerCase()}`}>{csp || "AWS"}</span>
+            <span className="fetch-src-badge auto">Auto</span>
+            <span className="split-badge"><GitBranch size={10}/> Split</span>
+          </div>
         </td>
         <td className="remarks-cell">
           {group.records.map(r => r.cost_data_source).filter(Boolean).join(" + ")}
@@ -395,6 +407,7 @@ function SplitMonthGroup({ group, showInr, onEdit, onDelete, onRefresh }) {
       {/* Individual payer segment rows (expanded) */}
       {expanded && group.records.map(r => (
         <MonthRow key={r.id} r={r} showInr={showInr}
+          csp={csp}
           onEdit={onEdit} onDelete={onDelete}
           isSplitSegment={true} />
       ))}
@@ -402,10 +415,12 @@ function SplitMonthGroup({ group, showInr, onEdit, onDelete, onRefresh }) {
   );
 }
 
-function AccountSection({ bucket, onEdit, onDelete, onRefresh }) {
+function AccountSection({ bucket, onEdit, onDelete, onRefresh, onOpenMasterEdit, globalShowInr = false }) {
   const [open, setOpen]             = useState(false);
-  const [showInr, setShowInr]       = useState(false);
-  const [masterEdit, setMasterEdit] = useState(false);
+  const [showInr, setShowInr]       = useState(globalShowInr);
+
+  // Sync with global toggle when it changes
+  useEffect(() => { setShowInr(globalShowInr); }, [globalShowInr]);
   const totals = sumBucket(bucket.records);
 
   // Count unique months (split months count as 1 month not 2 records)
@@ -437,24 +452,43 @@ function AccountSection({ bucket, onEdit, onDelete, onRefresh }) {
         <div className="account-header-left">
           <span className="chevron">{open ? "▾" : "▸"}</span>
           <div className="account-name-group">
+
+            {/* Row 1: Account name */}
             <span className="account-name">
               {bucket.isManual
-                ? <><FileText size={14} className="acct-icon"/>&nbsp;{bucket.accountName}</>
-                : <><Cloud size={14} className="acct-icon"/>&nbsp;{bucket.accountName}</>}
+                ? <><FileText size={13} className="acct-icon"/>&nbsp;{bucket.accountName}</>
+                : <><Cloud size={13} className="acct-icon"/>&nbsp;{bucket.accountName}</>}
             </span>
-            <div className="account-info-row">
-              {bucket.childAccountId && (
-                <span className="child-account-id" title="AWS Child Account ID">Account: {bucket.childAccountId}</span>
-              )}
+
+            {/* Row 2: Account ID */}
+            {bucket.childAccountId && (
+              <span className="acct-meta-row">
+                <span className="acct-meta-label">ID</span>
+                <span className="child-account-id">{bucket.childAccountId}</span>
+              </span>
+            )}
+
+            {/* Row 3: CSP badge */}
+            <span className="acct-meta-row">
+              <span className="acct-meta-label">CSP</span>
+              <span className={`csp-badge csp-${(bucket.csp || "AWS").toLowerCase()}`}>
+                {bucket.csp || "AWS"}
+              </span>
+            </span>
+
+            {/* Row 4: Month count + split indicator */}
+            <span className="acct-meta-row">
+              <span className="acct-meta-label">Months</span>
               <span className="record-count">
-                {uniqueMonthCnt} month{uniqueMonthCnt !== 1 ? "s" : ""}
+                {uniqueMonthCnt}
               </span>
               {splitMonthCnt > 0 && (
                 <span className="split-count-badge" title="Months with mid-month payer change">
                   <GitBranch size={10}/> {splitMonthCnt} split
                 </span>
               )}
-            </div>
+            </span>
+
           </div>
         </div>
 
@@ -471,7 +505,7 @@ function AccountSection({ bucket, onEdit, onDelete, onRefresh }) {
         </div>
 
         <button className="btn-master-edit-icon" title="Edit discounts"
-          onClick={e => { e.stopPropagation(); setMasterEdit(true); }}>
+          onClick={e => { e.stopPropagation(); onOpenMasterEdit(bucket); }}>
           <Settings size={14}/>
         </button>
       </div>
@@ -513,6 +547,7 @@ function AccountSection({ bucket, onEdit, onDelete, onRefresh }) {
                     key={group.month}
                     group={group}
                     showInr={showInr}
+                    csp={bucket.csp}
                     onEdit={onEdit}
                     onDelete={onDelete}
                     onRefresh={onRefresh}
@@ -522,6 +557,7 @@ function AccountSection({ bucket, onEdit, onDelete, onRefresh }) {
                     key={group.records[0].id}
                     r={group.records[0]}
                     showInr={showInr}
+                    csp={bucket.csp}
                     onEdit={onEdit}
                     onDelete={onDelete}
                   />
@@ -559,11 +595,6 @@ function AccountSection({ bucket, onEdit, onDelete, onRefresh }) {
         </div>
       )}
 
-      {masterEdit && (
-        <MasterEditModal bucket={bucket}
-          onSaved={() => { setMasterEdit(false); onRefresh(); }}
-          onClose={() => setMasterEdit(false)}/>
-      )}
     </div>
   );
 }
@@ -576,6 +607,9 @@ export default function RecordList() {
   const [fromDate, setFromDate]   = useState("");
   const [toDate, setToDate]       = useState("");
   const [confirmDel, setConfirmDel] = useState(null);
+  const [masterEditBucket, setMasterEditBucket] = useState(null);
+  const [cspFilter, setCspFilter] = useState("All");
+  const [currency, setCurrency]   = useState("USD");   // global USD/INR toggle
   const [showManual, setShowManual] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -607,7 +641,10 @@ export default function RecordList() {
   };
 
   const buckets = buildBuckets(accounts, records);
-  const grand   = sumBucket(records);
+  const filteredBuckets = cspFilter === "All"
+    ? buckets
+    : buckets.filter(b => (b.csp || "AWS") === cspFilter);
+  const grand = sumBucket(filteredBuckets.flatMap(b => b.records));
 
   return (
     <div className="records-page">
@@ -621,6 +658,10 @@ export default function RecordList() {
             <button onClick={() => { setFromDate(""); setToDate(""); }} className="btn-secondary">Clear</button>
           </div>
           <div className="header-btns">
+            <div className="currency-toggle-records">
+              <button className={currency === "USD" ? "active" : ""} onClick={() => setCurrency("USD")}>USD</button>
+              <button className={currency === "INR" ? "active" : ""} onClick={() => setCurrency("INR")}>INR ₹</button>
+            </div>
             <button className="btn-manual-add" onClick={() => setShowManual(v => !v)}>
               <PlusCircle size={14}/>&nbsp;Manual Account
             </button>
@@ -628,6 +669,31 @@ export default function RecordList() {
           </div>
         </div>
       </div>
+
+      {/* CSP filter bar — only shown when there are accounts */}
+      {buckets.length > 0 && (
+        <div className="csp-filter-bar">
+          <span className="csp-filter-label">Cloud Provider:</span>
+          {["All", "AWS", "GCP", "Azure"].map(c => (
+            <button
+              key={c}
+              className={`csp-filter-btn ${cspFilter === c ? `active csp-filter-${c.toLowerCase()}` : ""}`}
+              onClick={() => setCspFilter(c)}
+            >
+              {c === "All" ? "All Providers" : c}
+            </button>
+          ))}
+          {cspFilter !== "All" && (
+            <span className="csp-filter-count">
+              {filteredBuckets.length} account{filteredBuckets.length !== 1 ? "s" : ""}
+              &nbsp;·&nbsp;
+              <button className="csp-filter-clear" onClick={() => setCspFilter("All")}>
+                Clear filter
+              </button>
+            </span>
+          )}
+        </div>
+      )}
 
       {showManual && (
         <AddManualAccountPanel
@@ -659,20 +725,24 @@ export default function RecordList() {
                 <div key={m.label} className="gt-metric">
                   <span className="gt-metric-label">{m.label}</span>
                   <span className={`gt-metric-value ${m.sign ? (m.usd >= 0 ? "positive" : "negative") : ""}`}>
-                    {formatCurrency(m.usd)}
+                    {currency === "INR" ? formatINR(m.inr) : formatCurrency(m.usd)}
                   </span>
-                  {m.inr > 0 && <span className="gt-metric-inr">{formatINR(m.inr)}</span>}
+                  {currency === "USD" && m.inr > 0 && (
+                    <span className="gt-metric-inr">{formatINR(m.inr)}</span>
+                  )}
                 </div>
               ))}
             </div>
           </div>
 
           <div className="accounts-list">
-            {buckets.map(b => (
+            {filteredBuckets.map(b => (
               <AccountSection key={b.key} bucket={b}
                 onEdit={id => navigate(`/records/${id}/edit`)}
                 onDelete={handleDelete}
-                onRefresh={fetchData}/>
+                onRefresh={fetchData}
+                onOpenMasterEdit={setMasterEditBucket}
+                globalShowInr={currency === "INR"}/>
             ))}
           </div>
         </>
@@ -687,6 +757,14 @@ export default function RecordList() {
         onConfirm={doDelete}
         onClose={() => setConfirmDel(null)}
       />
+
+      {masterEditBucket && (
+        <MasterEditModal
+          bucket={masterEditBucket}
+          onSaved={() => { setMasterEditBucket(null); fetchData(); }}
+          onClose={() => setMasterEditBucket(null)}
+        />
+      )}
     </div>
   );
 }

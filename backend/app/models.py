@@ -24,6 +24,19 @@ class AwsAccount(db.Model):
     contract_date = db.Column(db.Date,        nullable=False)
     is_active     = db.Column(db.Boolean,     nullable=False, default=True)
     is_manual     = db.Column(db.Boolean,     nullable=False, default=False)
+
+    # ── CUR S3 configuration (optional) ──────────────────────────────────────
+    # When Cost Explorer returns $0 for historical months (e.g. after a payer
+    # change), CUR files in S3 can be used to fill the gaps.
+    # The same IAM credentials (active_payer) are used — add s3:GetObject and
+    # s3:ListBucket to the IAM policy.
+    s3_cur_bucket = db.Column(db.String(120), nullable=True)   # e.g. cloud-p-l
+    s3_cur_prefix = db.Column(db.String(200), nullable=True)   # e.g. wealwin/
+    s3_cur_region = db.Column(db.String(30),  nullable=True)   # e.g. us-east-1
+
+    # Cloud Service Provider — AWS | GCP | Azure (default AWS)
+    csp           = db.Column(db.String(20),  nullable=False, default="AWS")
+
     created_at    = db.Column(db.DateTime,    default=datetime.utcnow)
     updated_at    = db.Column(db.DateTime,    default=datetime.utcnow,
                               onupdate=datetime.utcnow)
@@ -33,11 +46,8 @@ class AwsAccount(db.Model):
         "CostRecord", backref="aws_account", lazy=True,
         foreign_keys="CostRecord.aws_account_id",
     )
-    payers = db.relationship(
-        "AwsAccountPayer", backref="account", lazy=True,
-        cascade="all, delete-orphan",
-        order_by="AwsAccountPayer.valid_from",
-    )
+    # Note: aws_account_payers table still exists in DB for historical data
+    # but is no longer used in application logic.
 
     # ── Credential helpers (legacy — still used for backward compat) ──────────
 
@@ -58,39 +68,26 @@ class AwsAccount(db.Model):
         return decrypt(self._secret_access_key_enc)
 
     def masked_access_key(self):
-        """Return masked key from active payer, falling back to legacy column."""
-        active = self.active_payer
-        if active and active._access_key_id_enc:
-            raw = active.get_access_key_id()
-        elif self._access_key_id_enc:
-            raw = self.get_access_key_id()
-        else:
+        """Return a masked version of the stored access key."""
+        if not self._access_key_id_enc:
             return "-"
+        raw = self.get_access_key_id()
         return (raw[:4] + "*" * (len(raw) - 4)) if raw else "****"
 
-    # ── Active payer helper ───────────────────────────────────────────────────
-
-    @property
-    def active_payer(self):
-        """Return the currently active AwsAccountPayer, or None."""
-        for p in self.payers:
-            if p.is_active:
-                return p
-        return None
-
     def to_dict(self):
-        active = self.active_payer
         return {
             "id":                   self.id,
             "name":                 self.name,
             "aws_account_id":       self.aws_account_id,
             "access_key_id_masked": self.masked_access_key(),
-            "region":               active.region if active else self.region,
+            "region":               self.region,
             "contract_date":        self.contract_date.isoformat() if self.contract_date else None,
             "is_active":            self.is_active,
             "is_manual":            self.is_manual,
-            "active_payer":         active.to_dict() if active else None,
-            "payers":               [p.to_dict() for p in self.payers],
+            "csp":                  self.csp or "AWS",
+            "s3_cur_bucket":        self.s3_cur_bucket,
+            "s3_cur_prefix":        self.s3_cur_prefix,
+            "s3_cur_region":        self.s3_cur_region,
             "created_at":           self.created_at.isoformat() if self.created_at else None,
             "updated_at":           self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -257,7 +254,8 @@ class CostRecord(db.Model):
 
     @property
     def customer_discount_amt(self):
-        return self.total_consumption * float(self.customer_discount) / 100.0
+        # Customer discount applies on cloud service cost only (not marketplace)
+        return float(self.cloud_service_cost) * float(self.customer_discount) / 100.0
 
     @property
     def managed_services_amt(self):
@@ -265,17 +263,25 @@ class CostRecord(db.Model):
 
     @property
     def ilios_spend(self):
+        """
+        What ILIOS actually pays to the cloud provider.
+        Deductions: distributor discount, credits, redington credit note.
+        Does NOT include managed services or customer discount
+        (those affect the invoice to customer, not ILIOS's own cost).
+        """
         return (
             self.total_consumption
             - self.distributor_discount_amt
             - float(self.credit_amount)
-            - self.managed_services_amt
-            - self.customer_discount_amt
             - float(self.redington_credit_note)
         )
 
     @property
     def invoice_to_customer(self):
+        """
+        What the customer is billed.
+        Customer discount reduces the bill; managed services fee is added.
+        """
         return (
             self.total_consumption
             - self.customer_discount_amt
@@ -284,7 +290,11 @@ class CostRecord(db.Model):
 
     @property
     def ilios_margin(self):
-        return self.invoice_to_customer - self.ilios_spend
+        """
+        ILIOS profit = what customer pays minus what ILIOS pays,
+        plus any cash claim received.
+        """
+        return self.invoice_to_customer - self.ilios_spend + float(self.cash_claim)
 
     @property
     def fx(self):

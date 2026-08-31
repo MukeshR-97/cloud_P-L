@@ -2,6 +2,7 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from dotenv import load_dotenv
+from urllib.parse import quote_plus
 import os
 
 load_dotenv()
@@ -22,8 +23,11 @@ def create_app():
         supports_credentials=False,
     )
 
+    # URL-encode the password so special characters like @ are handled correctly
+    db_password = quote_plus(os.getenv("DB_PASSWORD", ""))
+
     app.config["SQLALCHEMY_DATABASE_URI"] = (
-        f"mysql+pymysql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}"
+        f"mysql+pymysql://{os.getenv('DB_USER')}:{db_password}"
         f"@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_NAME')}"
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False

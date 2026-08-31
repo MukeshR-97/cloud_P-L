@@ -234,51 +234,30 @@ def _fetch_month(ce_client, m_start: str, m_end: str,
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def fetch_monthly_costs(account: "AwsAccount") -> list[dict]:
+def fetch_monthly_costs(account: "AwsAccount",
+                        month_pairs: list[tuple[str, str]] | None = None) -> list[dict]:
     """
-    Fetch monthly costs for every month from contract_date through last month.
-
-    Credential source (priority order):
-      1. account.active_payer  (AwsAccountPayer row with is_active=True)
-      2. account legacy columns (backward compat for accounts without payer rows)
-
-    The payer_account_id stored on each result row becomes cost_data_source
-    on the CostRecord — identifying WHICH management account supplied that cost.
-
-    Returns a list of dicts, one per month:
-      {
-        "month":              date,
-        "cloud_service_cost": float,   # 0.0 when unavailable/zero
-        "marketplace_cost":   float,
-        "data_status":        "fetched" | "zero" | "unavailable",
-        "payer_account_id":   str,     # 12-digit management account ID
-      }
-
-    IMPORTANT: data_status == "unavailable" means the current payer cannot see
-    that month. The caller MUST NOT write 0.0 over existing DB records.
+    Fetch monthly costs using the customer account's own IAM credentials.
+    The account's 12-digit ID is used to filter Cost Explorer results.
+    
+    Parameters
+    ----------
+    account     : AwsAccount with IAM credentials stored directly
+    month_pairs : optional pre-filtered list of (start_iso, end_iso) tuples.
+                  If None, fetches all months from contract_date to last month.
     """
-    # ── Resolve credentials from active payer or legacy columns ──────────────
-    active_payer = account.active_payer
+    # ── Read credentials directly from the account ────────────────────────────
+    access_key = account.get_access_key_id()
+    secret_key = account.get_secret_access_key()
+    region     = account.region or "us-east-1"
 
-    if active_payer:
-        access_key       = active_payer.get_access_key_id()
-        secret_key       = active_payer.get_secret_access_key()
-        payer_account_id = active_payer.payer_account_id
-        region           = active_payer.region or "us-east-1"
-        log.info(
-            "[Fetch] account=%s  using active payer=%s  region=%s",
-            account.name, payer_account_id, region,
-        )
-    else:
-        # Fallback to legacy credentials on aws_accounts
-        access_key       = account.get_access_key_id()
-        secret_key       = account.get_secret_access_key()
-        payer_account_id = (account.aws_account_id or "").strip() or "unknown"
-        region           = account.region or "us-east-1"
-        log.info(
-            "[Fetch] account=%s  using legacy credentials  payer=%s",
-            account.name, payer_account_id,
-        )
+    # The payer ID for cost_data_source is the account's own ID
+    payer_account_id = (account.aws_account_id or "").strip() or "direct"
+
+    log.info(
+        "[Fetch] account=%s  account_id=%s  region=%s",
+        account.name, payer_account_id, region,
+    )
 
     if not access_key or not secret_key:
         raise ValueError(
@@ -287,18 +266,24 @@ def fetch_monthly_costs(account: "AwsAccount") -> list[dict]:
         )
 
     # ── The member account ID to filter Cost Explorer by ─────────────────────
-    # This is the child/member account's own 12-digit ID, not the payer's.
     linked_account_id = (account.aws_account_id or "").strip() or None
 
-    start_str, end_str = build_date_range(account.contract_date)
+    # Use caller-supplied month pairs if given (smart incremental fetch),
+    # otherwise fall back to all months from contract date.
+    if month_pairs is None:
+        start_str, end_str = build_date_range(account.contract_date)
+        month_pairs = _month_range(start_str, end_str)
+
+    if not month_pairs:
+        log.info("[Fetch] account=%s — no months need fetching (all have real data)", account.name)
+        return []
 
     log.info(
-        "[Fetch Start] account=%s  member=%s  payer=%s  range=%s -> %s",
+        "[Fetch Start] account=%s  member=%s  payer=%s  months_to_fetch=%d",
         account.name,
         linked_account_id or "all",
         payer_account_id,
-        start_str,
-        end_str,
+        len(month_pairs),
     )
 
     try:
@@ -315,7 +300,7 @@ def fetch_monthly_costs(account: "AwsAccount") -> list[dict]:
         secret_key = None
 
     results: list[dict] = []
-    for m_start, m_end in _month_range(start_str, end_str):
+    for m_start, m_end in month_pairs:
         try:
             row = _fetch_month(ce, m_start, m_end, linked_account_id, payer_account_id)
         except ClientError as exc:

@@ -43,26 +43,32 @@ function Preview({ form }) {
   const fx    = n(form.conversion_rate) || 1;
 
   const distAmt = cloud * n(form.distributor_discount) / 100;
-  const custAmt = total * n(form.customer_discount)    / 100;
+  const custAmt = cloud * n(form.customer_discount)    / 100;  // on cloud cost only
   const mgtAmt  = total * n(form.managed_services)     / 100;
   const credAmt = n(form.credit_amount);
+  const cashAmt = n(form.cash_claim);
   const redAmt  = n(form.redington_credit_note);
 
-  const ilios   = total - distAmt - credAmt - mgtAmt - custAmt - redAmt;
+  // ILIOS Spend = what ILIOS pays (no managed svc or customer disc deducted)
+  const ilios   = total - distAmt - credAmt - redAmt;
   const invoice = total - custAmt + mgtAmt;
-  const margin  = invoice - ilios;
+  // Margin = invoice - ilios_spend + cash claim received
+  const margin  = invoice - ilios + cashAmt;
 
   const rows = [
-    { label: "Cloud + Marketplace", val: total,   bold: true },
+    { label: "Cloud + Marketplace",  val: total,   bold: true },
     { label: `− Dist. Disc (${formatPct(n(form.distributor_discount))})`, val: distAmt, neg: true },
-    { label: `− Credit Amt`,        val: credAmt, neg: true },
-    { label: `− Managed (${formatPct(n(form.managed_services))})`,       val: mgtAmt,  neg: true },
-    { label: `− Cust. Disc (${formatPct(n(form.customer_discount))})`,   val: custAmt, neg: true },
-    { label: `− Redington CN`,      val: redAmt,  neg: true },
+    { label: "− Credit Amt",         val: credAmt, neg: true },
+    { label: "− Redington CN",       val: redAmt,  neg: true },
     null,
-    { label: "ILIOS Spend",         val: ilios,   bold: true },
-    { label: "Invoice to Customer", val: invoice, bold: true },
-    { label: "ILIOS Margin",        val: margin,  bold: true, highlight: true },
+    { label: "ILIOS Spend",          val: ilios,   bold: true },
+    null,
+    { label: `− Cust. Disc (${formatPct(n(form.customer_discount))}) on Cloud`, val: custAmt, neg: true },
+    { label: `+ Managed Svc (${formatPct(n(form.managed_services))})`,          val: mgtAmt,  pos: true },
+    { label: "Invoice to Customer",  val: invoice, bold: true },
+    null,
+    { label: "+ Cash Claim",         val: cashAmt, pos: true },
+    { label: "ILIOS Margin",         val: margin,  bold: true, highlight: true },
   ];
 
   return (
@@ -82,6 +88,7 @@ function Preview({ form }) {
                   "rf-pv",
                   r.highlight ? (r.val >= 0 ? "pos" : "neg") : "",
                   r.neg ? "dim" : "",
+                  r.pos ? "pos-dim" : "",
                 ].filter(Boolean).join(" ")}
                 style={r.bold ? { fontWeight: 800 } : {}}>
                   {formatCurrency(r.val)}

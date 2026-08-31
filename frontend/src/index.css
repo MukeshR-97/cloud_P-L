@@ -152,8 +152,3 @@ code {
   background: rgba(59, 130, 246, 0.3);
   color: #0f172a;
 }
-
-::-moz-selection {
-  background: rgba(59, 130, 246, 0.3);
-  color: #0f172a;
-}
