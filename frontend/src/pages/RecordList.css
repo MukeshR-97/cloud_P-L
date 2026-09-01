@@ -142,18 +142,17 @@
 /* ── Grand total banner ──────────────────────────────────────────────────── */
 .grand-total-bar {
   display: flex;
-  align-items: center;
-  gap: 20px;
+  align-items: stretch;
+  gap: 0;
   background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
   color: #f1f5f9;
   border-radius: 14px;
-  padding: 16px 24px;
+  padding: 0;
   margin-bottom: 20px;
-  flex-wrap: wrap;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.22);
   position: relative;
   overflow: hidden;
-  animation: bannerSlideIn 0.5s ease-out;
+  animation: bannerSlideIn 0.4s ease-out;
 }
 
 .grand-total-bar::before {
@@ -170,52 +169,77 @@
 }
 
 .gt-label {
-  font-size: 0.7rem;
-  font-weight: 700;
+  font-size: 0.62rem;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: #64748b;
+  letter-spacing: 0.12em;
+  color: #475569;
   white-space: nowrap;
-  min-width: 88px;
+  flex-shrink: 0;
+  width: 108px;
+  min-width: 108px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 12px;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  line-height: 1.4;
 }
 
 .gt-metrics {
   display: flex;
-  gap: 28px;
-  flex-wrap: wrap;
   flex: 1;
-  align-items: center;
+  align-items: stretch;
+  gap: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
 }
 
 .gt-metric {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  justify-content: center;
+  gap: 4px;
+  flex: 1;
   min-width: 120px;
+  padding: 18px 20px;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  position: relative;
+  transition: background 0.15s;
 }
+.gt-metric:last-child { border-right: none; }
+.gt-metric:hover { background: rgba(255,255,255,0.03); }
 
 .gt-metric-label {
-  font-size: 0.65rem;
-  color: #94a3b8;
-  font-weight: 600;
+  font-size: 0.62rem;
+  color: #64748b;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 
 .gt-metric-value {
-  font-size: 1.05rem;
+  font-size: 1.25rem;
   font-weight: 800;
-  color: #f1f5f9;
-  letter-spacing: -0.01em;
+  color: #f8fafc;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  line-height: 1.1;
 }
 
 .gt-metric-value.positive { color: #4ade80; }
 .gt-metric-value.negative { color: #f87171; }
 
 .gt-metric-inr {
-  font-size: 0.68rem;
-  color: #64748b;
-  font-weight: 500;
+  font-size: 0.7rem;
+  color: #475569;
+  font-weight: 600;
+  white-space: nowrap;
+  margin-top: 1px;
 }
 
 /* ── Account sections list ───────────────────────────────────────────────── */

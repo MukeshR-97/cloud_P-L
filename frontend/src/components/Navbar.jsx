@@ -1,12 +1,11 @@
 import { Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, FileText, PlusCircle, Cloud } from "lucide-react";
+import { LayoutDashboard, FileText, Cloud } from "lucide-react";
 import "./Navbar.css";
 
 const NAV = [
-  { to: "/",            label: "Dashboard",    Icon: LayoutDashboard, exact: true  },
-  { to: "/records",     label: "Records",      Icon: FileText,        exact: false },
-  { to: "/records/new", label: "New Entry",    Icon: PlusCircle,      exact: true  },
-  { to: "/aws-accounts",label: "AWS Accounts", Icon: Cloud,           exact: false },
+  { to: "/",             label: "Dashboard",    Icon: LayoutDashboard, exact: true  },
+  { to: "/records",      label: "Records",      Icon: FileText,        exact: false },
+  { to: "/aws-accounts", label: "AWS Accounts", Icon: Cloud,           exact: false },
 ];
 
 export default function Navbar() {
