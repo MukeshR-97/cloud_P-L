@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { createRecord, updateRecord, getRecord, getAwsAccounts, addSplitRow } from "../api";
+import { createRecord, updateRecord, getRecord, getAwsAccounts } from "../api";
 import { formatCurrency, formatINR, formatPct } from "../utils/format";
 import { GitBranch } from "lucide-react";
 import "./RecordForm.css";

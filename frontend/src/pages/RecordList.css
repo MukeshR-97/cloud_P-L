@@ -267,30 +267,38 @@
 /* Left block: account identity */
 .account-header-left {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 14px 16px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
   flex-shrink: 0;
-  min-width: 170px;
-  max-width: 200px;
+  width: 220px;
+  min-width: 220px;
+  max-width: 220px;
   border-right: 1px solid #e5e7eb;
+  align-self: stretch;
 }
 
 .chevron {
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   color: #94a3b8;
   flex-shrink: 0;
-  margin-top: 3px;
-  transition: color 0.2s;
+  transition: color 0.15s;
+  align-self: center;
 }
 
-.account-header:hover .chevron { color: #3b82f6; }
+.account-header:hover .chevron {
+  font-size: 0.82rem;
+  color: #94a3b8;
+  flex-shrink: 0;
+  transition: color 0.15s;
+  align-self: center;
+}
 
 /* Vertical stack: name / ID / CSP / months */
 .account-name-group {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 3px;
   flex: 1;
   min-width: 0;
 }
@@ -384,11 +392,10 @@
 /* Right block: scrollable metric totals */
 .account-header-totals {
   display: flex;
-  gap: 0;
   flex: 1;
   overflow-x: auto;
-  padding: 12px 40px 12px 16px;
-  align-items: center;
+  padding: 0 36px 0 0;
+  align-items: stretch;
   scrollbar-width: thin;
   scrollbar-color: #e2e8f0 transparent;
 }
@@ -402,9 +409,9 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 1px;
-  flex-shrink: 0;
-  min-width: 86px;
-  padding: 0 10px;
+  flex: 1;
+  min-width: 75px;
+  padding: 10px 8px;
   border-right: 1px solid #f1f5f9;
 }
 
@@ -1078,4 +1085,64 @@
 .currency-toggle-records button:hover:not(.active) {
   background: #f1f5f9;
   color: #1e293b;
+}
+
+/* ── Zero month badge in account header ──────────────────────────────────── */
+.zero-month-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+/* ── CUR import button in action cell ────────────────────────────────────── */
+.btn-icon.cur-row-btn {
+  color: #7c3aed;
+  border: 1px solid #ddd6fe;
+  background: #f5f3ff;
+}
+.btn-icon.cur-row-btn:hover {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+/* ── Toolbar CUR hint ─────────────────────────────────────────────────────── */
+.toolbar-cur-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.7rem;
+  color: #7c3aed;
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  border-radius: 6px;
+  padding: 3px 10px;
+  margin-left: 8px;
+}
+
+.toolbar-cur-hint-warn {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+/* ── CUR configured badge in account info row ────────────────────────────── */
+.cur-configured-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #f5f3ff;
+  color: #7c3aed;
+  border: 1px solid #ddd6fe;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
 }

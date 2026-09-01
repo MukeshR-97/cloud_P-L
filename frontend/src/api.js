@@ -16,9 +16,8 @@ export const deleteRecord        = (id)           => api.delete(`/records/${id}`
 export const getDashboardSummary = (params = {})  => api.get("/dashboard/summary", { params });
 export const bulkUpdateDiscounts = (data)         => api.post("/records/bulk-update-discounts", data);
 
-// ── Split-month ───────────────────────────────────────────────────────────────
-export const addSplitRow     = (recordId, data)  => api.post(`/records/${recordId}/add-split`, data);
-export const mergeSplitGroup = (groupId)         => api.post(`/records/split-group/${groupId}/merge`);
+// ── Split-month — removed (not needed for direct account key setup)
+// Records simply use CUR import per-month for $0 months
 
 // ── AWS Accounts ──────────────────────────────────────────────────────────────
 export const getAwsAccounts   = ()            => api.get("/aws-accounts");
