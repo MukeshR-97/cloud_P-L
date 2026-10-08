@@ -89,7 +89,8 @@ def _ce_query(ce_client, start: str, end: str,
     """
     Execute a Cost Explorer GetCostAndUsage query.
     Returns ResultsByTime list on success.
-    Returns None (sentinel) on DataUnavailableException.
+    Returns None (sentinel) on DataUnavailableException or ValidationException
+    (which AWS raises when querying beyond the account's enabled history window).
     Raises ValueError for all other errors.
     """
     kwargs: dict = dict(
@@ -105,8 +106,11 @@ def _ce_query(ce_client, start: str, end: str,
         return resp.get("ResultsByTime", [])
     except ClientError as exc:
         code = exc.response["Error"]["Code"]
-        if code == _DATA_UNAVAIL:
-            log.debug("DataUnavailableException for %s->%s", start, end)
+        if code in (_DATA_UNAVAIL, "ValidationException"):
+            # ValidationException fires when querying beyond the CE history window
+            # (default 14 months; can be extended to 38 months in AWS Console).
+            # Treat as unavailable — caller will create a $0 placeholder.
+            log.debug("CE unavailable for %s->%s [%s]", start, end, code)
             return None
         raise
 

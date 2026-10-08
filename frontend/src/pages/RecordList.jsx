@@ -18,64 +18,60 @@ function buildBuckets(accounts, records) {
   const bucketKey = (a) => a.aws_account_id ? `acct:${a.aws_account_id}` : `dbid:${a.id}`;
   const map = new Map();
 
+  // Build buckets only for active accounts (getAwsAccounts is called with active_only=true)
   for (const a of accounts) {
     const k = bucketKey(a);
     if (!map.has(k)) {
       map.set(k, {
         key: k,
-        accountId:    a.id,
-        accountName:  a.name,
+        accountId:     a.id,
+        accountName:   a.name,
         childAccountId: a.aws_account_id || null,
-        csp:          a.csp || "AWS",
-        isManual:     a.is_manual || false,
-        contractDate: a.contract_date,
+        csp:           a.csp || "AWS",
+        isManual:      a.is_manual || false,
+        contractDate:  a.contract_date,
         s3_cur_bucket: a.s3_cur_bucket || null,
         s3_cur_prefix: a.s3_cur_prefix || null,
-        records:      [],
-        dbAccountIds: new Set([a.id]),
+        records:       [],
+        dbAccountIds:  new Set([a.id]),
       });
     }
   }
 
+  // Assign records to their account bucket — skip if account not in map (inactive/deleted)
   const orphans = [];
   for (const r of records) {
     if (!r.aws_account_id) { orphans.push(r); continue; }
-    const a   = acctById.get(r.aws_account_id);
-    const k   = a ? bucketKey(a) : `dbid:${r.aws_account_id}`;
+    const a = acctById.get(r.aws_account_id);
+    if (!a) continue;  // account is inactive or deleted — don't show its records
+    const k = bucketKey(a);
     if (map.has(k)) {
       map.get(k).records.push(r);
-    } else {
-      map.set(k, {
-        key: k,
-        accountId:    r.aws_account_id,
-        accountName:  r.aws_account_name || `Account #${r.aws_account_id}`,
-        childAccountId: r.aws_child_account_id || null,
-        csp:          "AWS",
-        isManual:     false,
-        contractDate: r.contract_date,
-        s3_cur_bucket: null,
-        s3_cur_prefix: null,
-        records:      [r],
-        dbAccountIds: new Set([r.aws_account_id]),
-      });
     }
   }
 
   for (const b of map.values())
     b.records.sort((a, b) => a.consumption_month.localeCompare(b.consumption_month));
 
-  const buckets = [...map.values()].sort((a, b) =>
-    (a.accountName || "").localeCompare(b.accountName || "")
-  );
+  // Remove buckets that have no records (active manual accounts with no entries yet)
+  const buckets = [...map.values()]
+    .filter(b => b.records.length > 0)
+    .sort((a, b) => (a.accountName || "").localeCompare(b.accountName || ""));
 
+  // Orphan records (no aws_account_id) — only show if they have real cost data
   if (orphans.length > 0) {
-    orphans.sort((a, b) => a.consumption_month.localeCompare(b.consumption_month));
-    buckets.push({
-      key: "manual", accountId: null, accountName: "Manual Entries",
-      childAccountId: null, csp: "AWS", isManual: true,
-      contractDate: null, s3_cur_bucket: null, s3_cur_prefix: null,
-      records: orphans, dbAccountIds: new Set(),
-    });
+    const realOrphans = orphans.filter(r =>
+      r.cloud_service_cost > 0 || r.marketplace_cost > 0
+    );
+    if (realOrphans.length > 0) {
+      realOrphans.sort((a, b) => a.consumption_month.localeCompare(b.consumption_month));
+      buckets.push({
+        key: "orphan", accountId: null, accountName: "Unlinked Records",
+        childAccountId: null, csp: "AWS", isManual: true,
+        contractDate: null, s3_cur_bucket: null, s3_cur_prefix: null,
+        records: realOrphans, dbAccountIds: new Set(),
+      });
+    }
   }
 
   return buckets;
@@ -623,7 +619,7 @@ export default function RecordList() {
       const params = {};
       if (fromDate) params.from_date = fromDate;
       if (toDate)   params.to_date   = toDate;
-      const [rR, aR] = await Promise.all([getRecords(params), getAwsAccounts()]);
+      const [rR, aR] = await Promise.all([getRecords(params), getAwsAccounts({ active_only: true })]);
       setRecords(rR.data); setAccounts(aR.data);
     } catch { setError("Failed to fetch records."); }
     finally  { setLoading(false); }

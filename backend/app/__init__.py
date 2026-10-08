@@ -33,6 +33,19 @@ def create_app():
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev")
 
+    # Connection pool settings — prevent "Lost connection" errors on idle connections
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "pool_pre_ping":    True,       # test connection before using it
+        "pool_recycle":     280,        # recycle connections every 280s (before MySQL's wait_timeout)
+        "pool_size":        10,
+        "max_overflow":     20,
+        "connect_args": {
+            "connect_timeout": 30,
+            "read_timeout":    60,
+            "write_timeout":   60,
+        },
+    }
+
     db.init_app(app)
 
     from app.routes import cost_bp

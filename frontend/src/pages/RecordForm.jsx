@@ -159,7 +159,7 @@ export default function RecordForm() {
     (async () => {
       try {
         const [aR, rR] = await Promise.all([
-          getAwsAccounts(),
+          getAwsAccounts({ active_only: true }),
           isEdit ? getRecord(id) : Promise.resolve(null),
         ]);
         const accts = aR.data || [];

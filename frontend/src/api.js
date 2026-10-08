@@ -20,11 +20,12 @@ export const bulkUpdateDiscounts = (data)         => api.post("/records/bulk-upd
 // Records simply use CUR import per-month for $0 months
 
 // ── AWS Accounts ──────────────────────────────────────────────────────────────
-export const getAwsAccounts   = ()            => api.get("/aws-accounts");
+export const getAwsAccounts   = (params = {}) => api.get("/aws-accounts", { params });
 export const createAwsAccount = (data)        => api.post("/aws-accounts", data);
 export const updateAwsAccount = (id, data)    => api.put(`/aws-accounts/${id}`, data);
 export const deleteAwsAccount = (id)          => api.delete(`/aws-accounts/${id}`);
 export const fetchAwsCosts    = (id)          => api.post(`/aws-accounts/${id}/fetch`);
+export const fetchAllCosts    = ()            => api.post(`/aws-accounts/fetch-all`);
 
 // ── Payer Management — REMOVED (distributor manages payers, we don't have those keys)
 

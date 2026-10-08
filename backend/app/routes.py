@@ -90,6 +90,14 @@ def list_records():
 
     query = CostRecord.query.order_by(CostRecord.consumption_month.desc())
 
+    # If no date filter provided, default to last 14 months to keep response fast
+    if not from_date and not to_date:
+        from datetime import date, timedelta
+        default_from = (date.today().replace(day=1) - timedelta(days=365 + 31)).replace(day=1)
+        query = query.filter(
+            CostRecord.consumption_month >= default_from
+        )
+
     if from_date:
         try:
             query = query.filter(
@@ -120,6 +128,11 @@ def create_record():
     payload = request.get_json(silent=True)
     if not payload:
         return jsonify({"error": "JSON body required"}), 400
+
+    # Require aws_account_id — every record must be linked to an account
+    if not payload.get("aws_account_id"):
+        return jsonify({"error": "aws_account_id is required. Select an account before saving."}), 422
+
     record, err = record_from_payload(payload)
     if err:
         return jsonify({"error": err}), 422

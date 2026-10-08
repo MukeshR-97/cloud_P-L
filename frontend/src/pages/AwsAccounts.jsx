@@ -5,6 +5,7 @@ import {
   updateAwsAccount,
   deleteAwsAccount,
   fetchAwsCosts,
+  fetchAllCosts,
   importCur,
   diagnoseCur,
 } from "../api";
@@ -639,6 +640,8 @@ export default function AwsAccounts() {
   const [expandedId, setExpandedId]     = useState(null);
   const [search, setSearch]             = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [fetchingAll, setFetchingAll]   = useState(false);
+  const [fetchAllResult, setFetchAllResult] = useState(null);
 
   const { toast } = useToast();
 
@@ -654,6 +657,20 @@ export default function AwsAccounts() {
   useEffect(() => { load(); }, [load]);
 
   const handleSave = () => { setModal(null); load(); };
+
+  const handleFetchAll = async () => {
+    setFetchingAll(true);
+    setFetchAllResult(null);
+    try {
+      const { data } = await fetchAllCosts();
+      setFetchAllResult(data);
+      toast.success(`Fetch All complete — ${data.ok}/${data.total} accounts succeeded.`);
+    } catch (err) {
+      toast.error(err?.response?.data?.error || "Fetch All failed.");
+    } finally {
+      setFetchingAll(false);
+    }
+  };
 
   const doDelete = async () => {
     const acc = confirmDel;
@@ -692,9 +709,22 @@ export default function AwsAccounts() {
     <div className="aws-page">
       <div className="page-header">
         <h1>AWS Accounts</h1>
-        <button className="btn-primary" onClick={() => setModal("new")}>
-          <Plus size={14} /> Add Account
-        </button>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <button
+            className="btn-fetch-all"
+            onClick={handleFetchAll}
+            disabled={fetchingAll}
+            title="Fetch costs for all active accounts"
+          >
+            {fetchingAll
+              ? <><Loader2 size={14} className="spin-icon" /> Fetching All...</>
+              : <><Download size={14} /> Fetch All Accounts</>
+            }
+          </button>
+          <button className="btn-primary" onClick={() => setModal("new")}>
+            <Plus size={14} /> Add Account
+          </button>
+        </div>
       </div>
 
       {/* Search + filter toolbar */}
@@ -890,6 +920,87 @@ export default function AwsAccounts() {
 
       {modal && <AccountModal initial={modal === "new" ? null : modal} onSave={handleSave} onClose={() => setModal(null)} />}
       {curImportFor && <CurImportModal account={curImportFor} onClose={() => setCurImportFor(null)} />}
+
+      {/* Fetch All Result Modal */}
+      {fetchAllResult && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-box modal-box-wide">
+            <div className="modal-header">
+              <div>
+                <h2><Download size={15} style={{ marginRight: 8, verticalAlign: "middle" }} />
+                  Fetch All — Results
+                </h2>
+                <p className="modal-subtitle">{fetchAllResult.message}</p>
+              </div>
+              <button className="modal-close" onClick={() => { setFetchAllResult(null); load(); }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Summary chips */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+              <span className="sum-chip sum-fetched">OK: {fetchAllResult.ok}</span>
+              {fetchAllResult.errors > 0 && <span className="sum-chip sum-unavail">Errors: {fetchAllResult.errors}</span>}
+              {fetchAllResult.skipped > 0 && <span className="sum-chip sum-preserved">Skipped: {fetchAllResult.skipped}</span>}
+              <span className="sum-chip" style={{ background: "#f1f5f9", color: "#475569" }}>Total: {fetchAllResult.total}</span>
+            </div>
+
+            {/* Per-account results table */}
+            <div style={{ maxHeight: "55vh", overflowY: "auto" }}>
+              <table className="cur-months-table">
+                <thead>
+                  <tr>
+                    <th>Account</th>
+                    <th>Status</th>
+                    <th>Fetched</th>
+                    <th>Inserted</th>
+                    <th>Updated</th>
+                    <th>Skipped</th>
+                    <th>Zero</th>
+                    <th>Message</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fetchAllResult.results.map(r => (
+                    <tr key={r.id} style={{
+                      background: r.status === "error"   ? "#fff1f2" :
+                                  r.status === "skipped" ? "#fffbeb" : "#f0fdf4",
+                    }}>
+                      <td style={{ fontWeight: 700, color: "#0f172a" }}>{r.name}</td>
+                      <td>
+                        <span style={{
+                          fontSize: "0.68rem", fontWeight: 700, padding: "2px 8px",
+                          borderRadius: 20,
+                          background: r.status === "ok"      ? "#dcfce7" :
+                                      r.status === "error"   ? "#fee2e2" : "#fef9c3",
+                          color:      r.status === "ok"      ? "#166534" :
+                                      r.status === "error"   ? "#991b1b" : "#854d0e",
+                        }}>
+                          {r.status === "ok" ? "✓ OK" : r.status === "error" ? "✗ Error" : "Skipped"}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "right" }}>{r.summary?.fetched   ?? "—"}</td>
+                      <td style={{ textAlign: "right" }}>{r.summary?.inserted  ?? "—"}</td>
+                      <td style={{ textAlign: "right" }}>{r.summary?.updated   ?? "—"}</td>
+                      <td style={{ textAlign: "right" }}>{r.summary?.skipped   ?? "—"}</td>
+                      <td style={{ textAlign: "right" }}>{r.summary?.zero      ?? "—"}</td>
+                      <td style={{ fontSize: "0.72rem", color: "#6b7280", maxWidth: 220, whiteSpace: "normal" }}>
+                        {r.status === "error" ? <span style={{ color: "#dc2626" }}>{r.message}</span> : r.message}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button className="btn-primary" onClick={() => { setFetchAllResult(null); load(); }}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

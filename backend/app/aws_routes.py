@@ -54,7 +54,11 @@ def _validate_access_key(key: str) -> bool:
 @aws_bp.route("/aws-accounts", methods=["GET"])
 def list_accounts():
     try:
-        accounts = AwsAccount.query.order_by(AwsAccount.name).all()
+        query = AwsAccount.query.order_by(AwsAccount.name)
+        # Optional filter: ?active_only=true returns only active accounts
+        if request.args.get("active_only", "").lower() == "true":
+            query = query.filter_by(is_active=True)
+        accounts = query.all()
         return jsonify([a.to_dict() for a in accounts]), 200
     except SQLAlchemyError as exc:
         return jsonify({"error": f"Database error: {exc}"}), 500
@@ -623,4 +627,199 @@ def cur_diagnose(account_id):
         "item_types_seen": sorted(item_types),
         "non_zero_cost_count": len(non_zero),
         "warnings": warnings,
+    }), 200
+
+
+# ── Bulk Fetch All Active Accounts ────────────────────────────────────────────
+
+@aws_bp.route("/aws-accounts/fetch-all", methods=["POST"])
+def fetch_all_costs():
+    """
+    Fetch costs for ALL active, non-manual accounts sequentially.
+    Returns a summary per account — successes and failures.
+    """
+    from app.aws_service import fetch_monthly_costs, build_date_range, _month_range
+    from datetime import datetime as _dt
+
+    accounts = AwsAccount.query.filter_by(is_active=True, is_manual=False).order_by(AwsAccount.name).all()
+
+    if not accounts:
+        return jsonify({"message": "No active accounts to fetch.", "results": []}), 200
+
+    results = []
+
+    for account in accounts:
+        acct_result = {
+            "id":      account.id,
+            "name":    account.name,
+            "status":  "ok",
+            "message": "",
+            "summary": {},
+        }
+
+        # Skip if no credentials
+        if not account._access_key_id_enc:
+            acct_result["status"]  = "skipped"
+            acct_result["message"] = "No IAM credentials configured."
+            results.append(acct_result)
+            continue
+
+        try:
+            # Build list of months that need fetching
+            start_str, end_str = build_date_range(account.contract_date)
+            all_months   = _month_range(start_str, end_str)
+            today_month  = date.today().replace(day=1)
+
+            all_existing = CostRecord.query.filter_by(aws_account_id=account.id).all()
+            existing_by_month = {}
+            for r in all_existing:
+                existing_by_month.setdefault(r.consumption_month, []).append(r)
+
+            def _needs_fetch(month_date):
+                if month_date == today_month:
+                    return True
+                rows = existing_by_month.get(month_date, [])
+                if not rows:
+                    return True
+                if all(
+                    r.cost_status in ("unavailable", "zero")
+                    and float(r.cloud_service_cost) == 0
+                    and float(r.marketplace_cost)   == 0
+                    for r in rows
+                ):
+                    return len(rows) == 1
+                return False
+
+            months_to_fetch = [
+                (ms, me) for ms, me in all_months
+                if _needs_fetch(_dt.strptime(ms, "%Y-%m-%d").date())
+            ]
+
+            monthly_data = fetch_monthly_costs(account, month_pairs=months_to_fetch)
+
+            # Process results — same logic as single fetch
+            payer_id = (account.aws_account_id or "direct").strip()
+            summary  = {"fetched": 0, "preserved": 0, "zero": 0,
+                        "unavailable": 0, "inserted": 0, "updated": 0,
+                        "skipped": len(all_months) - len(months_to_fetch)}
+
+            for row in monthly_data:
+                month_date = row["month"]
+                aws_status = row["data_status"]
+                aws_cloud  = row["cloud_service_cost"]
+                aws_mp     = row["marketplace_cost"]
+
+                existing_rows = (
+                    CostRecord.query
+                    .filter_by(aws_account_id=account.id, consumption_month=month_date)
+                    .all()
+                )
+                existing = existing_rows[0] if existing_rows else None
+                has_historical = (
+                    existing is not None
+                    and (float(existing.cloud_service_cost) > 0
+                         or float(existing.marketplace_cost)   > 0)
+                )
+                existing_for_payer = next(
+                    (r for r in existing_rows if r.cost_data_source == payer_id), None
+                )
+
+                if aws_status == "fetched":
+                    is_current = month_date == today_month
+                    if existing_for_payer:
+                        has_real = float(existing_for_payer.cloud_service_cost) > 0 \
+                                   or float(existing_for_payer.marketplace_cost) > 0
+                        safe = (existing_for_payer.cost_status in ("unavailable","zero")
+                                or is_current or not has_real)
+                        if safe:
+                            existing_for_payer.cloud_service_cost = round(aws_cloud, 4)
+                            existing_for_payer.marketplace_cost   = round(aws_mp,    4)
+                            existing_for_payer.cost_status        = "fetched"
+                            existing_for_payer.is_auto_fetched    = True
+                            summary["updated"] += 1
+                        else:
+                            existing_for_payer.cost_status = "preserved"
+                            summary["preserved"] += 1
+                        summary["fetched"] += 1
+                    elif existing is None:
+                        db.session.add(CostRecord(
+                            aws_account_id=account.id, contract_date=account.contract_date,
+                            consumption_month=month_date,
+                            cloud_service_cost=round(aws_cloud,4), marketplace_cost=round(aws_mp,4),
+                            is_auto_fetched=True, cost_data_source=payer_id, cost_status="fetched",
+                        ))
+                        summary["inserted"] += 1; summary["fetched"] += 1
+                    else:
+                        existing.cost_status = "preserved"; summary["preserved"] += 1
+
+                elif aws_status == "zero":
+                    if has_historical:
+                        existing.cost_status = "preserved"; summary["preserved"] += 1
+                    elif existing is not None:
+                        existing.cost_data_source = payer_id; existing.cost_status = "zero"
+                        summary["zero"] += 1
+                    else:
+                        db.session.add(CostRecord(
+                            aws_account_id=account.id, contract_date=account.contract_date,
+                            consumption_month=month_date, cloud_service_cost=0, marketplace_cost=0,
+                            is_auto_fetched=True, cost_data_source=payer_id, cost_status="zero",
+                        ))
+                        summary["zero"] += 1
+
+                elif aws_status == "unavailable":
+                    if has_historical:
+                        existing.cost_status = "preserved"; summary["preserved"] += 1
+                    elif existing is not None:
+                        existing.cost_data_source = payer_id; existing.cost_status = "unavailable"
+                        summary["unavailable"] += 1
+                    else:
+                        db.session.add(CostRecord(
+                            aws_account_id=account.id, contract_date=account.contract_date,
+                            consumption_month=month_date, cloud_service_cost=0, marketplace_cost=0,
+                            is_auto_fetched=True, cost_data_source=payer_id, cost_status="unavailable",
+                        ))
+                        summary["unavailable"] += 1
+
+            db.session.commit()
+            acct_result["summary"] = summary
+            acct_result["message"] = (
+                f"Fetched: {summary['fetched']}, "
+                f"Inserted: {summary['inserted']}, "
+                f"Updated: {summary['updated']}, "
+                f"Skipped: {summary['skipped']}, "
+                f"Zero: {summary['zero']}, "
+                f"Unavailable: {summary['unavailable']}."
+            )
+
+        except ValueError as exc:
+            db.session.rollback()
+            acct_result["status"]  = "error"
+            acct_result["message"] = str(exc)
+
+        except SQLAlchemyError as exc:
+            db.session.rollback()
+            acct_result["status"]  = "error"
+            acct_result["message"] = f"Database error: {exc}"
+
+        except Exception as exc:
+            db.session.rollback()
+            acct_result["status"]  = "error"
+            acct_result["message"] = str(exc)
+
+        results.append(acct_result)
+
+    ok_count      = sum(1 for r in results if r["status"] == "ok")
+    error_count   = sum(1 for r in results if r["status"] == "error")
+    skipped_count = sum(1 for r in results if r["status"] == "skipped")
+
+    return jsonify({
+        "message": (
+            f"Fetch All complete. "
+            f"OK: {ok_count}, Errors: {error_count}, Skipped: {skipped_count} / {len(results)} accounts."
+        ),
+        "total":   len(results),
+        "ok":      ok_count,
+        "errors":  error_count,
+        "skipped": skipped_count,
+        "results": results,
     }), 200
