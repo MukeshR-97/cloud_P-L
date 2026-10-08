@@ -4,7 +4,7 @@ import {
   Cloud, FileText, Settings, Pencil, Trash2,
   CheckCircle, ShieldCheck, AlertTriangle, PlusCircle, Database, FileDown
 } from "lucide-react";
-import { getRecords, getAwsAccounts, createAwsAccount, deleteRecord, bulkUpdateDiscounts, importCur } from "../api";
+import { getRecords, getAwsAccounts, createAwsAccount, deleteRecord, deleteAccountRecords, bulkUpdateDiscounts, importCur } from "../api";
 import { formatCurrency, formatINR, formatPct } from "../utils/format";
 import { useToast } from "../components/Toast";
 import Dialog from "../components/Dialog";
@@ -404,7 +404,7 @@ function CurMonthImportModal({ record, bucket, onDone, onClose }) {
 }
 
 // ── Account Section ───────────────────────────────────────────────────────────
-function AccountSection({ bucket, onEdit, onDelete, onRefresh, onOpenMasterEdit, globalShowInr }) {
+function AccountSection({ bucket, onEdit, onDelete, onRefresh, onOpenMasterEdit, onDeleteAccount, globalShowInr }) {
   const [open, setOpen]     = useState(false);
   const [showInr, setShowInr] = useState(globalShowInr);
   const [curMonthRecord, setCurMonthRecord] = useState(null); // record to CUR-import
@@ -500,6 +500,10 @@ function AccountSection({ bucket, onEdit, onDelete, onRefresh, onOpenMasterEdit,
         <button className="btn-master-edit-icon" title="Edit discounts for all months"
           onClick={e => { e.stopPropagation(); onOpenMasterEdit(bucket); }}>
           <Settings size={14}/>
+        </button>
+        <button className="btn-account-delete-icon" title={`Delete all ${uniqueMonths} records for ${bucket.accountName}`}
+          onClick={e => { e.stopPropagation(); onDeleteAccount(bucket); }}>
+          <Trash2 size={13}/>
         </button>
       </div>
 
@@ -605,7 +609,8 @@ export default function RecordList() {
   const [error, setError]             = useState(null);
   const [fromDate, setFromDate]       = useState("");
   const [toDate, setToDate]           = useState("");
-  const [confirmDel, setConfirmDel]   = useState(null);
+  const [confirmDel, setConfirmDel]           = useState(null);  // single record
+  const [confirmDelAccount, setConfirmDelAccount] = useState(null); // all records for account
   const [masterEditBucket, setMasterEditBucket] = useState(null);
   const [cspFilter, setCspFilter]     = useState("All");
   const [currency, setCurrency]       = useState("USD");
@@ -637,6 +642,38 @@ export default function RecordList() {
       setRecords(prev => prev.filter(r => r.id !== id));
       toast.success("Record deleted.");
     } catch { toast.error("Delete failed. Please try again."); }
+  };
+
+  const handleDeleteAccount = (bucket) => setConfirmDelAccount(bucket);
+
+  const doDeleteAccount = async () => {
+    const bucket = confirmDelAccount;
+    setConfirmDelAccount(null);
+
+    // accountId comes from the bucket — for orphan buckets built from unknown accounts,
+    // grab the aws_account_id from the first record directly
+    const accountId = bucket.accountId
+      || (bucket.records[0]?.aws_account_id ?? null);
+
+    if (!accountId) {
+      // True orphans (aws_account_id = NULL) — delete by NULL directly
+      try {
+        const { data } = await deleteAccountRecords(0); // 0 = signal for NULL records
+        toast.success(data.message);
+        fetchData();
+      } catch {
+        toast.error("Delete failed.");
+      }
+      return;
+    }
+
+    try {
+      const { data } = await deleteAccountRecords(accountId);
+      toast.success(data.message);
+      fetchData();
+    } catch (err) {
+      toast.error(err?.response?.data?.error || "Delete failed.");
+    }
   };
 
   const buckets = buildBuckets(accounts, records);
@@ -745,6 +782,7 @@ export default function RecordList() {
                 onDelete={handleDelete}
                 onRefresh={fetchData}
                 onOpenMasterEdit={setMasterEditBucket}
+                onDeleteAccount={handleDeleteAccount}
                 globalShowInr={showInr}/>
             ))}
           </div>
@@ -759,6 +797,16 @@ export default function RecordList() {
         confirmLabel="Delete"
         onConfirm={doDelete}
         onClose={() => setConfirmDel(null)}
+      />
+
+      <Dialog
+        open={Boolean(confirmDelAccount)}
+        type="danger"
+        title={`Delete All Records — ${confirmDelAccount?.accountName || ""}`}
+        message={`This will permanently delete ALL ${confirmDelAccount?.records?.length || ""} record(s) for "${confirmDelAccount?.accountName || ""}". This cannot be undone.`}
+        confirmLabel="Delete All Records"
+        onConfirm={doDeleteAccount}
+        onClose={() => setConfirmDelAccount(null)}
       />
 
       {masterEditBucket && (

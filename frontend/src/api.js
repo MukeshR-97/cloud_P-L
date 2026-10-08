@@ -12,7 +12,8 @@ export const getRecords          = (params = {}) => api.get("/records", { params
 export const getRecord           = (id)           => api.get(`/records/${id}`);
 export const createRecord        = (data)         => api.post("/records", data);
 export const updateRecord        = (id, data)     => api.put(`/records/${id}`, data);
-export const deleteRecord        = (id)           => api.delete(`/records/${id}`);
+export const deleteRecord         = (id)           => api.delete(`/records/${id}`);
+export const deleteAccountRecords = (accountId)    => api.delete(`/records/account/${accountId}`);
 export const getDashboardSummary = (params = {})  => api.get("/dashboard/summary", { params });
 export const bulkUpdateDiscounts = (data)         => api.post("/records/bulk-update-discounts", data);
 

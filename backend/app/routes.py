@@ -90,10 +90,11 @@ def list_records():
 
     query = CostRecord.query.order_by(CostRecord.consumption_month.desc())
 
-    # If no date filter provided, default to last 14 months to keep response fast
+    # If no date filter provided, default to last 24 months to keep response reasonable
+    # Users can set explicit date filters to see older data
     if not from_date and not to_date:
-        from datetime import date, timedelta
-        default_from = (date.today().replace(day=1) - timedelta(days=365 + 31)).replace(day=1)
+        from datetime import date as _date, timedelta
+        default_from = (_date.today().replace(day=1).replace(year=_date.today().year - 2))
         query = query.filter(
             CostRecord.consumption_month >= default_from
         )
@@ -513,6 +514,29 @@ def bulk_update_discounts():
             "message": f"Updated {updated} record(s) for account id={aws_account_id}",
         }), 200
 
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        return jsonify({"error": f"Database error: {exc}"}), 500
+
+
+# ── Delete all records for an account ────────────────────────────────────────
+
+@cost_bp.route("/records/account/<int:account_id>", methods=["DELETE"])
+def delete_account_records(account_id):
+    """Delete ALL cost records for a given aws_account_id.
+    account_id=0 is a special signal meaning delete records where aws_account_id IS NULL."""
+    try:
+        if account_id == 0:
+            count = CostRecord.query.filter(CostRecord.aws_account_id.is_(None)).count()
+            CostRecord.query.filter(CostRecord.aws_account_id.is_(None)).delete()
+        else:
+            count = CostRecord.query.filter_by(aws_account_id=account_id).count()
+            CostRecord.query.filter_by(aws_account_id=account_id).delete()
+        db.session.commit()
+        return jsonify({
+            "message": f"Deleted {count} record(s).",
+            "deleted": count,
+        }), 200
     except SQLAlchemyError as exc:
         db.session.rollback()
         return jsonify({"error": f"Database error: {exc}"}), 500

@@ -1170,3 +1170,28 @@
   padding: 1px 5px;
   border-radius: 4px;
 }
+
+/* ── Account header delete button ────────────────────────────────────────── */
+.btn-account-delete-icon {
+  position: absolute;
+  top: 6px;
+  right: 34px;   /* sit left of the gear icon */
+  background: none;
+  border: 1px solid transparent;
+  color: #94a3b8;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  z-index: 2;
+}
+
+.btn-account-delete-icon:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fca5a5;
+}
